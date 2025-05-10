@@ -1,0 +1,664 @@
+---
+title: "UAA"
+format: html
+editor: visual
+---
+
+```{r, message=FALSE}
+library(readxl) #Package for reading in excel data
+library(tidyverse) # Package for data cleaning and processing
+
+```
+
+I started by importing the data, "UAAS9009Overview 20230401.xlsx", into R. The original format of the data is such that each year and month belong to a unique column. I changed this format by creating a single column for all years and months. Thus, the data will now change from 1007 rows by 39 columns to 4524 rows by 7 columns. For easy understanding, I changed the M, N, J in the Month column of the data set to May, June, and July respectively.
+
+```{r}
+UAA <- read_excel("UAASOverview19902009RAMET 20230630.xlsx") # read in data
+#UAA %>% filter(SPECIES == "NA")
+#UAA <- UAA %>% filter(!SPECIES == "NA") # there are some NA at the species column, remove them 
+data.view <- UAA[ , c(3, 4, 6:40)]
+
+write.csv(data.view, "data.view.csv")
+
+str(UAA)
+
+head(UAA) # the data is originally formated in a way that has each Year and Month as a column names with specific stages as row values. 
+tail(UAA)
+
+UAA <- UAA %>% pivot_longer(c(6:40), names_to = "Year", values_to = "stage") # Change the data format from wider to longer format, making Year as rownames and stages as values.
+
+UAA$Month <- gsub("[[:digit:]]", "", UAA$Year) #create new column for Month
+UAA$Year <- gsub("M","", UAA$Year) #Remove all M (May) from Year
+UAA$Year <- gsub("J","",UAA$Year) #Remove all J (July) from Year
+UAA$Year <- gsub("N","",UAA$Year) #Remove all N (June) from Year
+
+head(UAA)
+tail(UAA)
+
+UAA$Month <- gsub("M","May", UAA$Month) #replace all M with May 
+UAA$Month <- gsub("J","July",UAA$Month) #replace all J with July
+UAA$Month <- gsub("N","June",UAA$Month) #replace all N with June
+
+#UAA$stage[is.na(UAA$stage)] <- "n"
+
+
+
+
+#UAA <- UAA %>% filter(!is.na(stage)) # remove all NA's
+head(UAA)
+tail(UAA)
+
+UAA[ , c("PLOT", "RAMET", "Year", "stage", "Month")]
+
+```
+
+I also created a function to change the year annotation from the short format (e.g., 90 = 1990, 02 = 2002, 09=2009, 99=1999, 00=2000) to the full format. In the stage column, the original unique stages includes: "r", "d" , "F" , "n" , "G2", "m3", "G3" ,"m2" "p", "s" , "m" , "m5", and "w2".
+
+These stage descriptions need to be reformed to a more concise format.
+
+To do this, I created a new column as stage.modify (meaning I have modify the original stages) while maintaining the original stage column for reference purpose.
+
+The change in stage description is as follows:
+
+1\. replace d as Dead
+
+2\. replace p as Pulled tag (Pulled.tag)
+
+3\. replace n with no plant (no.ramet)
+
+4\. replace m as Multiple Rosette (MR)
+
+5\. replace w2 as Multiple Flowering (MF)
+
+6\. replace m2 as Multiple Rosette (MR)
+
+7\. replace m5 as Multiple Rosette (MR)
+
+8\. replace m3 as Multiple Rosette (MR)
+
+9\. replace F as Single Flowering (SF)
+
+10\. replace r as Single Rosette (SR)
+
+11\. replace G2 as Multiple Flowering (MF)
+
+12\. replace G3 as Multiple Flowering (MF)
+
+13\. replace s as Seedling
+
+The new unique stage description are: "SR", "Dead" , "SF" ,"no.ramet" , "MF" , "MR" , "Pulled.tag", "Seedling".
+
+```{r}
+# Create a function to tidy up Year values
+replace.yr <- function(x){
+  y <- x
+  for(i in 1:length(x)){
+    if(x[i] == 90){
+      y[i] <- 1990
+    } else if(x[i] == 91){
+      y[i] <- 1991
+    }else if(x[i] == 92){
+      y[i] <- 1992
+    }else if(x[i] == 93){
+      y[i] <- 1993
+    }else if(x[i] == 94){
+     y[i] <- 1994
+    }else if(x[i] == 95){
+      y[i] <- 1995
+    }else if(x[i] == 96){
+      y[i] <- 1996
+    }else if(x[i] == 97){
+      y[i] <- 1997
+    }else if(x[i] == 98){
+      y[i] <- 1998
+    }else if(x[i] == 99){
+      y[i] <- 1999
+    } else if(x[i] == 00){
+      y[i] <- 2000
+    }else if(x[i] == 01){
+      y[i] <- 2001
+    }else if(x[i] == 02){
+      y[i] <- 2002
+    }else if(x[i] == 03){
+     y[i] <- 2003
+    }else if(x[i] == 04){
+      y[i] <- 2004
+    }else if(x[i] == 05){
+      y[i] <- 2005
+    }else if(x[i] == 06){
+      y[i] <- 2006
+    }else if(x[i] == 07){
+      y[i] <- 2007
+    }else if(x[i] == 08){
+      y[i] <- 2008
+    } else if(x[i] == 09){
+      y[i] <- 2009
+    } else {
+      y[i] <- x[i]
+    }
+      
+  } 
+  return(y)
+}
+
+unique(UAA$Year)
+
+UAA$Year <- as.numeric(UAA$Year) # Year is treated as a character variable, use this code to change it to numeric variable. You have to do this first before applying the function "replace.yr".
+
+UAA$Year <- replace.yr(UAA$Year) #Everything looks good now.
+
+head(UAA)
+tail(UAA)
+
+unique(UAA$stage) # check for unique stages
+
+
+UAA$stage.modify <- gsub("d","Dead", UAA$stage) #replace d as Dead
+UAA$stage.modify <- gsub("p","Pulled.tag", UAA$stage.modify) #replace p as Pulled.tag
+#UAA$stage.modify <- gsub("n","no.ramet", UAA$stage.modify) #replace n with no plant
+UAA$stage.modify <- gsub("x","not.tagged", UAA$stage.modify) #replace p as not.tag
+UAA$stage.modify <- gsub("m","MR", UAA$stage.modify) #replace m as Multiple Rosette
+#UAA$stage.modify <- gsub("w2","MR", UAA$stage.modify) #replace w2 as Multiple Flowering
+UAA$stage.modify <- gsub("MR2","MR", UAA$stage.modify) #replace m2 as Multiple Rosette
+UAA$stage.modify <- gsub("MR5","MR", UAA$stage.modify) #replace m5 as Multiple Rosette
+UAA$stage.modify <- gsub("MR3","MR", UAA$stage.modify) #replace m3 as Multiple Rosette
+UAA$stage.modify <- gsub("F","SF", UAA$stage.modify) #replace F as Single Flowering
+UAA$stage.modify <- gsub("r","SR", UAA$stage.modify) #replace r as Single Rosette
+UAA$stage.modify <- gsub("G2","MF", UAA$stage.modify) #replace G2 as Multiple Flowering
+UAA$stage.modify <- gsub("G3","MF", UAA$stage.modify) #replace G3 as Multiple Flowering
+UAA$stage.modify <- gsub("s","Seedling", UAA$stage.modify) #replace s as Seedling
+
+
+UAA <- UAA %>% 
+ mutate(    
+   stage.modify = case_when(
+     stage.modify == "n" ~ "no.ramet",
+    TRUE ~ stage.modify
+ ))
+
+
+unique(UAA$stage.modify) # check to see if all stages are renamed correctly
+
+head(UAA)
+tail(UAA)
+
+###########################
+UAA <- UAA %>% select(!stage)
+
+UAA_Dem.both <- UAA %>% filter(Year %in% c(1990, 1991,1992,1993,1994,1995,1996,1997,1998,1999))
+UAA_Dem.both <- UAA_Dem.both %>% pivot_wider(names_from = "Month", values_from = "stage.modify")
+UAA_Dem.both <- UAA_Dem.both %>% filter(!(is.na(May)&is.na(July)))
+UAA_Dem.both <- UAA_Dem.both %>% pivot_longer(c(May, July), names_to = "Month", values_to = "stage.modify")
+
+#########################
+UAA_Dem.2002 <- UAA %>% filter(Year == 2002) %>% pivot_wider(names_from = "Month", values_from = "stage.modify") %>% filter(!(is.na(May)&is.na(June)))
+UAA_Dem.2002 <- UAA_Dem.2002%>%pivot_longer(c(May, June), names_to = "Month", values_to = "stage.modify")
+
+######################
+UAA_Dem.bolt1 <- UAA %>% filter(Year %in% c(2000, 2001, 2003))%>% pivot_wider(names_from =                                "Month",values_from = "stage.modify") %>% filter(!(is.na(May)&is.na(July)))
+UAA_Dem.bolt1 <-UAA_Dem.bolt1%>%pivot_longer(c(May, July), names_to = "Month", values_to = "stage.modify")
+######
+UAA_Dem.bolt2 <- UAA %>% filter(Year == 2004)%>% pivot_wider(names_from = "Month",values_from = "stage.modify") %>% filter(!(is.na(June)&is.na(July)))
+UAA_Dem.bolt2 <-UAA_Dem.bolt2%>%pivot_longer(c(June, July), names_to = "Month", values_to = "stage.modify")
+
+#####################
+UAA_Dem.sing <- UAA %>% filter(Year %in% c(2005, 2006, 2007, 2008, 2009)) %>% filter(!is.na(stage.modify))
+
+UAA <- rbind(UAA_Dem.both, UAA_Dem.2002, UAA_Dem.bolt1, UAA_Dem.bolt2, UAA_Dem.sing)
+
+UAA <- UAA %>%
+ mutate(    
+   stage.modify = case_when(is.na(stage.modify) ~ "no.ramet",
+    TRUE ~ stage.modify
+ )) 
+
+
+#UAA %>% filter(RAMET == "218")
+```
+
+# Covert the data from a two observations per year to a single observation per year
+
+I started by creating a function that tracked early and late season observations for each year.
+
+NB: In most of the years, the ramets were monitored twice a year (i.e., early season (May) and late season (June, July)). For the first 10 years of observation (i.e., 1990-1999), all ramets were monitored in both early and late season. Essentially, what I did here was to give priority to the late season observations (i.e., observations in July), with few exceptions as explained below. The reason was because flowering plants were only observed in July, and we definitely do not want to miss out on information about flowering plants.
+
+If the stage in the late observation was the same as the stage in the early observation, then either the stage for early or late observation was recorded for that year.
+
+If the stage in the late observation was different from the stage in the early observation, then I recorded late observation as the stage for the year, with two exceptions:
+
+1.  if the stage was dead or no plant in the late season observation, I used early season recording. This was to also help maintain information on vegetatively active ramets.
+2.  if the plant was recorded as seedling in the early season, then it was recorded as seedling for the year because the cotyledons have likely fallen off by the late season observation.
+
+There are other cases where the second observation (i.e., duplicates) was targeted to only collect information on flowering plants (Years: 2000, 2001, 2002, 2003, and 2004; see point 3). What this means is that, if a plant is monitored in May (early season) and did not flower in the late season observation (June or July), no information was recorded for that ramet in the late season. However, even though this was the original sampling design, there were still some records for late season observations that were not flowering plants (some were "dead" records, while others were "Pulled tag", "no plant"). To handle such situation, I removed all late season observations that were not flowering ramets. Then I joined the late season flowering ramets to the ramets that were observed only once in a year (that is the ramets with no lates season observation because they did not flower).
+
+For some years, the ramets were observed only in July (2005, 2006, and 2007) or June (2008 and 2009). Thus, no further changes were needed in these cases.  
+
+```{r}
+# Create a column that is able to track and assign duplicate (late observations) observations per a year
+UAA1 <- UAA %>% mutate(hash = str_c(RAMET, Year)) %>% #join RAMET and Year to a single column
+  group_by(hash) %>% 
+ mutate(dupl_id = seq(n())) %>% # Create a column that identifies an observation as duplicate
+ ungroup () 
+
+#################Working on data from 1990-1999###################
+# filter on data from 1990-1999
+UAA_both <- UAA1 %>% filter(Year %in% c(1990, 1991,1992,1993,1994,1995,1996,1997,1998,1999))
+
+# filter cases where the observations in July were "no.ramet" or "Dead"
+Null.July <- UAA_both %>% filter(Month == "July" & stage.modify %in% c("Dead", "no.ramet"))
+
+Null.uni <- unique(Null.July$hash) # Store the unique records of "no.ramet" or "Dead" observations in July
+
+July.True <- UAA_both %>% filter(Month == "July") # Filter only July observations
+July.True <- July.True[!(July.True$hash %in% Null.uni),] #Remove records of "no.ramet" or "Dead" observations in July from July only dataframe.
+
+May.True <- UAA_both %>% filter(Month == "May") # Filter only May data
+May.seed <- May.True[(May.True$dupl_id=="1" & (May.True$stage.modify == "Seedling")),]
+Seed.uni <- unique(May.seed$hash) # Store the unique records of seedling observations in May
+July.True <- July.True[!(July.True$hash %in% Seed.uni),] #remove records of No seedling in July but seedlings in May
+
+
+May.True <- May.True[(May.True$hash %in% Null.uni),] #maintain required May data to be substituted for "no.ramet" or "Dead" observations in July
+
+UAA_both <- rbind(May.True, July.True, May.seed) # Combine required May and July data
+
+UAA_both <- UAA_both %>% select(!c(hash, dupl_id)) # Remove unwanted columns
+
+#############Working on data that was repeated for only flowered plants###########
+UAA_bolt <- UAA1 %>% filter(Year %in% c(2000, 2001, 2003,2004)) #filter required years
+
+# Remove all late observations that did not flower. They appeared as no.ramet
+UAA_bolt <- UAA_bolt[!(UAA_bolt$dupl_id=="2" & !(UAA_bolt$stage.modify%in%c("SF", "MF"))),]
+
+# Filter out only duplicate that flowered
+du.fit1 <- UAA_bolt  %>% filter(dupl_id=="2")
+
+#Create a unique values of the hash column for flowering late observations
+un1 <- unique(du.fit1$hash)
+
+
+# Remove cases where the plant flowered in late observations but did not flower in the early observations
+UAA_bolt  <- UAA_bolt[!(UAA_bolt$hash %in% un1  & UAA_bolt$Month %in% c("May", "June")),]
+
+#Check if there is still duplicate observations in a single year
+UAA_bolt$duplicated <- duplicated(UAA_bolt [, "hash"])
+unique(UAA_bolt $duplicated)
+###Remove all duplicate = no.ramet
+#UAA_bolt <- UAA_bolt %>% filter(!(Month == "May" & stage.modify == "no.ramet"))
+#UAA_bolt$duplicate1 <- duplicated(UAA_bolt [, "hash"])
+#UAA_bolt <- UAA_bolt %>% filter(!(duplicate1 == TRUE & stage.modify == "no.ramet"))
+
+# Check complete, data is valid.
+#unique(UAA_bolt $duplicated)
+table(UAA_bolt$stage.modify, UAA_bolt$duplicated)
+
+UAA_bolt <- UAA_bolt %>% select(!c(hash, dupl_id, duplicated))
+
+##################Years with only one observation (JUNE)######################
+UAA_June <- UAA1 %>% filter(Year %in% c(2008, 2009))
+UAA_June <- UAA_June %>% select(!c(hash, dupl_id))
+
+##################Years with only one observation (July)######################
+UAA_July <- UAA1 %>% filter(Year %in% c(2005, 2006, 2007))
+UAA_July <- UAA_July %>% select(!c(hash, dupl_id))
+
+################Working on 2002 data, observed for only 2002#########################
+UAA_2002 <- UAA1 %>% filter(Year == 2002) # Filter only 2002 data
+
+Null.June <- UAA_2002 %>% filter(Month == "June" & stage.modify %in% c("Dead", "no.ramet"))
+Null.June 
+Null.uniq <- unique(Null.June$hash) # Store the unique records of "no.ramet" or "Dead" observations in June
+
+June.True <- UAA_2002 %>% filter(Month == "June") # Filter only June observations
+June.True <- June.True[!(June.True$hash %in% Null.uniq),] #Remove records of "no.ramet" or "Dead" observations in June from June only dataframe.
+
+May.True1 <- UAA_2002 %>% filter(Month == "May") # Filter only May data
+#Filtering only seedlings in May
+May.seed1 <- May.True1[(May.True1$dupl_id=="1" & (May.True1$stage.modify == "Seedling")),] 
+May.seed1 # no seedling data recorded
+#Seed.uni1 <- unique(May.seed1$hash) # Store the unique records of seedling observations in May
+#July.True <- July.True[!(July.True$hash %in% Seed.uni1),] #remove records of No seedling in July but seedlings in May
+
+May.True1 <- May.True1[(May.True1$hash %in% Null.uniq),] #maintain required May data to be substituted for "no.ramet" or "Dead" observations in June
+
+
+UAA_2002 <- rbind(May.True1, June.True)
+
+#UAA_2002 <- June.True
+
+UAA_2002 <- UAA_2002 %>% select(!c(hash, dupl_id))
+
+UAA <- rbind(UAA_both, UAA_bolt, UAA_2002, UAA_July, UAA_June)
+
+UAA <- UAA %>% arrange(RAMET, Year)
+
+# Remove first stage == dead
+#UAA <- UAA %>% group_by( RAMET) %>% filter(!(Year == min(Year) & stage.modify == "Dead"))
+#UAA <- UAA %>% group_by( RAMET) %>% filter(!(Year == min(Year) & stage.modify == "no.ramet"))
+#UAA <- UAA %>% group_by( RAMET) %>% filter(!(Year == max(Year) & stage.modify == "no.ramet"))
+UAA <- UAA %>% filter(!(stage.modify == "Pulled.tag")) #Remove "pulled.tag" (85 observations)
+
+## Problem solved
+UAA %>% filter(RAMET == "218")
+
+```
+
+## Create new columns
+
+To be able to keep track of ramet transitions:
+
+1.  I created a new column and called it PrevStage (meaning, previous stage).  This column contains information on the previous state (for the immediate past year; I mean just one year past, t-1) of each ramet.
+2.  I created a new column that specifies the next stage of the plant and called it NexStage (meaning Next stage). This column contains information about the fate (the stage at year t+1) of the ramet given the state of the ramet in its current year, t.
+3.  I created two new columns, First Stage and Last Stage. These two columns specify the state of the plant when it was first observed and the state of the plant when it was last observed, respectively.
+
+```{r}
+#http://ctszkin.com/2012/03/11/generating-a-laglead-variables/#comments
+### First Part#####
+
+### This code build a new column that is able to detect previous stage of the plant, but also depends on the stage of the plant in for each year.
+buildPrevSize <- function(x){
+  sort1 <- paste(x$Year, x$RAMET) # ID can be a character, year must be numeric
+  sort2 <- paste(x$Year-1, x$RAMET)
+  index_lag<-match(sort2, sort1)
+  x$PrevStage <- x$stage.modify[index_lag]
+  x$PrevYear <- x$Year[index_lag]
+  x
+}
+
+
+### This code build a new column that is able to detect next stage of the plant, but also depends on the stage of the plant in the specific month of the year. That is, June/July records the current year matches with June/July records in the next year. The same is true for May records. 
+buildNextSize <- function(x){
+  sort1 <- paste(x$Year, x$RAMET) # ID can be a character, year must be numeric
+  sort2 <- paste(x$Year+1, x$RAMET)
+  index_lead<-match(sort2, sort1)
+  # cool ... na values are where they should be, no previous results
+  #table(Astragalus[is.na(index_lag),"Year"])
+  # hotdamn! this works, so now
+  x$NextStage <- x$stage.modify[index_lead]
+  x$NextYear <- x$Year[index_lead]
+  x
+}
+
+
+### This code build a new column that is able to detect first stage of the plant and the last stage. 
+buildStartStopYears <- function(x){
+  first_last <- x %>% 
+    filter(!is.na(stage.modify)) %>% 
+    group_by(RAMET) %>% 
+    arrange(RAMET, Year) %>% 
+    summarize(firstYear = first(Year),
+              firstStage = first(stage.modify),
+              lastYear = last(Year),
+              lastStage = last(stage.modify))
+  x <- left_join(x, first_last)
+  x
+}
+
+is_true <- function(x){
+  is.logical(x) & !is.na(x) & x
+} 
+
+
+UAA <- buildPrevSize(UAA) %>% 
+  filter(#!(is_true(PrevStage=="no.ramet") & is_true(stage.modify == "no.ramet")),
+          !(is_true(PrevStage=="Pulled.tag") & is_true(stage.modify == "Pulled.tag")),
+         #!(is.na(PrevStage) & is_true(stage.modify == "no.ramet")),
+         !(is_true(PrevStage == "Pulled.tag") & is_true(stage.modify == "no.ramet"))) %>% 
+  mutate(PrevStage = case_when(PrevStage == "no.ramet" ~ NA_character_, #set no.ramet to NA
+                               TRUE ~ PrevStage))
+
+## Apply the three functions created above
+UAA2 <- (buildPrevSize(UAA) %>% 
+  buildNextSize() %>% 
+  buildStartStopYears())
+
+########################################################################
+#UAA3 <- UAA2 %>% group_by(RAMET) %>% filter(!(Year == min(Year) & stage.modify == "no.ramet" & is.na(NextStage)))
+```
+
+## Inactive stage
+
+This is a unique demographic stage of a plant, where the plant that was once vegetatively active gives up its vegetative or above ground structure to stay below for about one or more growing season. For a plant to qualify to be in a prolonged dormancy stage in a given year:
+
+1.  Sprouting from Prolonged Dormancy: the current stage has to be "no.ramet", and the next stage must either be "MF", "MR","SF","SR".
+
+2.  the current stage has to be "no.ramet", and the previous stage has to "no.ramet",
+
+3.  the current stage has to be "no.ramet", and the next stage has to "no.ramet".
+
+```         
+NB: Case 2&3 is to help capture cases where the plant stayed below ground for more than on growing season.
+```
+
+4.  Entering from Prolonged Dormancy: the current stage has to be "no.ramet", and the previous stage must either be "MF", "MR","SF","SR", "Seedling".
+
+```{r}
+intro.pd <- function(x, y, z){
+          D <- x
+          for(i in 1:length(x)){
+            if (x[i] == "no.ramet"  &  z[i]  %in% c("MF", "MR","SF","SR", "no.ramet", na.rm = TRUE)){ D[i] <-"inactive"} #sprouting from prolonged dormancy
+           else if (x[i] == "no.ramet"  &  y[i]  %in% c("MF", "MR","SF","SR", "Seedling","no.ramet", na.rm = TRUE)){ D[i] <-"inactive"} #entering prolonged dormancy
+            else if (x[i] == "no.ramet" & z[i] %in% c("no.ramet", na.rm = TRUE)){ D[i] <-"inactive"} # staying in prolonged dormancy for more than a year
+            else if (x[i] == "no.ramet"  & y[i] %in% c("no.ramet", na.rm = TRUE)){ D[i] <-"inactive"} # staying in prolonged dormancy
+            else {D[i] <- x[i]
+          }
+            
+        }
+        return(D)
+}
+
+UAA2$stage.modified <- intro.pd(UAA2$stage.modify, UAA2$PrevStage, UAA2$NextStage)
+
+
+#Special cases
+UAA2 <- UAA2 %>% 
+ mutate(    
+   stage.modified = case_when(
+     Year == 2008 & stage.modified == "inactive" & NextStage == "no.ramet" ~ "no.ramet", #we need at least three year to determine dormancy.
+       Year == 2009 & stage.modified == "inactive" ~ "no.ramet", #2009 cannot be inactive 
+    TRUE ~ stage.modified
+ ))
+
+##############################################################################
+# I do not see the essence of keeping no.ramet in both 2008 and 2009. After all, it does not add any information to the data. 
+UAA2 <- UAA2 %>% filter(!(Year == 2008 & stage.modified == "no.ramet" & NextStage == "no.ramet")) %>% filter(!(Year == 2009 & stage.modified == "no.ramet"))
+
+
+```
+
+Now that I have introduced a new stages, I have to recreate the new columns for previous, next, first, and last stages of each ramet and each year.
+
+```{r}
+UAA3 <- UAA2 %>% select(SPECIES, SITE, PLOT, Year, Month, NEWROS, RAMET, stage.modified)
+
+
+### This code build a new column that is able to detect previous stage of the plant, but also depends on the stage of the plant in the specific month of the year. That is, June/July records the current year matches with June/July records in the previous year. The same is true for May records. 
+buildPrevSize <- function(x){
+  sort1 <- paste(x$Year, x$RAMET) # ID can be a character, year must be numeric
+  sort2 <- paste(x$Year-1, x$RAMET)
+  index_lag<-match(sort2, sort1)
+  x$PrevStage <- x$stage.modified[index_lag]
+  x$PrevYear <- x$Year[index_lag]
+  x
+}
+
+
+### This code build a new column that is able to detect next stage of the plant, but also depends on the stage of the plant in the specific month of the year. That is, June/July records the current year matches with June/July records in the next year. The same is true for May records. 
+buildNextSize <- function(x){
+  sort1 <- paste(x$Year, x$RAMET) # ID can be a character, year must be numeric
+  sort2 <- paste(x$Year+1, x$RAMET)
+  index_lead<-match(sort2, sort1)
+  x$NextStage <- x$stage.modified[index_lead]
+  x$NextYear <- x$Year[index_lead]
+  x
+}
+
+#is_true <- function(x){
+ # is.logical(x) & !is.na(x) & x
+#} 
+
+
+### This code build a new column that is able to detect first stage of the plant and the last stage. 
+buildStartStopYears <- function(x){
+  first_last <- x %>% 
+    filter(!is.na(stage.modified)) %>% 
+    group_by(RAMET) %>% 
+    arrange(RAMET, Year) %>% 
+    summarize(firstYear = first(Year),
+              firstStage = first(stage.modified),
+              lastYear = last(Year),
+              lastStage = last(stage.modified))
+  x <- left_join(x, first_last)
+  x
+}
+
+
+#UAA4 <- buildPrevSize(UAA4) %>% 
+#  filter(#!(is_true(PrevStage=="no.ramet") & is_true(stage.modified == "no.ramet")),
+#         !(is_true(PrevStage=="Pulled.tag") & is_true(stage.modified == "Pulled.tag")),
+         #!(is.na(PrevStage) & is_true(stage.modified == "no.ramet")),
+ #        !(is_true(PrevStage == "Pulled.tag") & is_true(stage.modified == "no.ramet"))) %>% 
+ # mutate(PrevStage = case_when(PrevStage == "no.ramet" ~ NA_character_, #set no.ramet to NA
+  #                             TRUE ~ PrevStage))
+
+
+## Apply the three functions created above
+UAA3 <- (buildPrevSize(UAA3) %>% 
+  buildNextSize() %>% 
+  buildStartStopYears())
+
+with(UAA3, table(PrevStage, stage.modified, useNA = "always"))
+
+
+```
+
+## Survival
+
+1\. Whenever the plant flowers, survival becomes "No"
+
+2\. Whenever the last stage is "Seedlings", "MR" or "SR" , survival becomes "No"
+
+```{r}
+# Create a functuon for survival analysis
+UAA3$Survival <- "Yes"
+
+UAA3 <- UAA3 %>% 
+ mutate(    
+   Survival = case_when(stage.modified == "SF" ~ "No",
+                        stage.modified == "MF" ~ "No",
+                        stage.modified == "Seedling" & is.na(NextStage) ~ "No",
+                        stage.modified == "SR" & is.na(NextStage) ~ "No",
+                        stage.modified == "MR" & is.na(NextStage) ~ "No",
+                        #stage.modified == "Seedling" & NextStage == "Dead" ~ "No",
+                        #stage.modified == "SR" & NextStage == "Dead" ~ "No",
+                        #stage.modified == "MR" & NextStage == "Dead" ~ "No",
+                        #stage.modify == "no.ramet" & NextStage == "Dead" ~ "No",
+                        Year == "2007" & stage.modified == "not.tagged"  ~ NA,
+                        Year == "2008" & stage.modified == "not.tagged"  ~ NA,
+                        Year == "2009" & stage.modified == "not.tagged"  ~ NA,
+                        NextStage == "not.tagged" ~ NA,
+    TRUE ~ Survival
+ ))
+
+UAA3$Survival[UAA3$Year == "2009" & UAA3$stage.modified == "MR"] <- NA
+UAA3$Survival[UAA3$Year == "2009" & UAA3$stage.modified == "SR"] <- NA
+UAA3$Survival[UAA3$Year == "2009" & UAA3$stage.modified == "Seedling"] <- NA
+UAA3$Survival[UAA3$Year == "2009" & UAA3$stage.modified == "inactive"] <- NA
+
+
+
+#UAA3 <- UAA3 %>% filter(stage.modified!="Dead")
+
+#UAA3 %>% filter(is.na(PrevStage) & stage.modified == "SR")
+
+UAA3 %>% filter(PrevStage == "SF" & stage.modified == "inactive")
+
+#UAA3 %>% filter(RAMET == 104)
+
+UAA3 %>% filter(stage.modified == "inactive")
+```
+
+# Defining unknown records of previous and next stage columns.
+
+**NB: wherever the previous stage was unknown (unknown here means no information exist or the cell is empty), it was defined as "first appearance" in the data set. Meaning, it was the first time the plant was recorded (all first appearance can be taken as newly recruits ramets, and very essential for modeling recruitments). Also, wherever, the next stage (fate) of the ramet was unknown (unknown here means no information exist or the cell is empty), it was defined as "dead" ramets (can also be used as a surrogate to model survival probabilities).**
+
+```{r}
+#########################################################
+UAA3 <- UAA3  %>% group_by(RAMET) %>%
+ mutate(    
+   PrevStage = case_when(is.na(PrevStage) & Year == min(Year) ~ "First.Appearance",
+    TRUE ~ PrevStage
+ ))  
+
+
+UAA3 <- UAA3  %>% group_by(RAMET) %>%
+ mutate(    
+   PrevStage = case_when(PrevStage == "First.Appearance" & Year == 1990 ~ "No.record",
+    TRUE ~ PrevStage
+ ))  
+
+
+UAA3 <- UAA3 %>% group_by(RAMET) %>%
+ mutate(    
+   NextStage = case_when(is.na(NextStage) & Year == max(Year)  ~ "Dead",
+    TRUE ~ NextStage
+ )) 
+
+
+UAA3$NextStage[UAA3$Year == "2009" & UAA3$stage.modified == "MR"] <- NA
+UAA3$NextStage[UAA3$Year == "2009" & UAA3$stage.modified == "SR"] <- NA
+UAA3$NextStage[UAA3$Year == "2009" & UAA3$stage.modified == "Seedling"] <- NA
+UAA3$NextStage[UAA3$Year == "2009" & UAA3$stage.modified == "inactive"] <- NA
+
+
+with(UAA3, table(stage.modified, PrevStage, useNA = "always"))
+
+with(UAA3, table(NextStage, stage.modified, useNA = "always"))
+
+############################
+
+with(UAA3, table(NextStage, stage.modified, useNA = "always"))
+
+UAA3 %>% filter(is.na(NextStage) & stage.modified == "SR") ## all in 2009. We cannot tell if they survive next year or not
+UAA3 %>% filter(is.na(NextStage) & stage.modified == "MR")
+UAA3 %>% filter(is.na(NextStage) & stage.modified == "Seedling") ## all in 2009. We cannot tell if they survive next year or not
+UAA3 %>% filter(NextStage == "Dead" & stage.modified == "inactive")
+
+UAA3 %>% filter(NextStage == "Dead" & stage.modified == "no.ramet")
+
+UAA3 <- UAA3 %>% filter(!(RAMET == 788 & Year %in% c(2001, 2002)))
+
+UAA3 <- UAA3 %>% filter(!(RAMET == 789 & Year %in% c(2004, 2005)))
+
+#UAA3 %>% filter(RAMET == 960)
+```
+
+```{r}
+write_csv(UAA3, "UAA_single.csv")
+```
+
+```{r}
+library(reshape2)
+UAA.surv <- dcast(UAA3,  Year ~ Survival, value.var = "Survival")
+UAA.surv <- UAA.surv %>% transform(Total = No + Yes) %>% transform(Prop.survival = ((Total - No)/Total)*100)
+
+
+UAA.stage <- dcast(UAA3,  Year ~ stage.modified, value.var = "stage.modified")
+UAA.rec <- dcast(UAA3,  Year ~ PrevStage, value.var = "PrevStage")
+
+UAA.stage <- cbind(UAA.stage, Recruitment = UAA.rec$First.Appearance)
+
+UAA.stage <- UAA.stage %>% 
+  rowwise() %>% 
+  mutate(Total = sum(inactive, MF, MR, Seedling, SF, SR, na.rm = TRUE)) %>%
+  mutate(Prop.inactive = ((Total-sum(MF, MR, Seedling, SF, SR))/Total)*100,
+         Prop.MF = ((Total-sum(inactive, MR, Seedling, SF, SR))/Total)*100,
+         Prop.MR = ((Total-sum(inactive, MF, Seedling, SF, SR))/Total)*100,
+         Prop.Seedling = ((Total-sum(inactive, MR, MF, SF, SR))/Total)*100,
+         Prop.SF = ((Total-sum(inactive, MR, Seedling, MF, SR))/Total)*100,
+         Prop.SR = ((Total-sum(inactive, MR, Seedling, SF, MF))/Total)*100,
+         Prop.Rec = ((Total-(Total-Recruitment))/Total)*100)
+
+UAA.surv$Site <- "UAA"
+UAA.stage$Site <- "UAA"
+```

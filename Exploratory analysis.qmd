@@ -1,0 +1,493 @@
+---
+title: "Exploratory Analysis"
+author: "John Mensah"
+format: html
+editor: visual
+---
+
+## 
+
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(tidyverse)
+Stage.data <- read.csv("Stage.data.csv")
+```
+
+## Proportion of Ramets (Appendix 3)
+
+```{r}
+library(patchwork)
+
+p1 <- Stage.data[, c("Year", "Site", "Total", "Prop.inactive", "Prop.MF", "Prop.MR", "Prop.Seedling", "Prop.SF", "Prop.SR")] %>% group_by(Year, Site) %>% summarise(Prop.inactive = mean(Prop.inactive), Prop.MF = mean(Prop.MF), Prop.MR = mean(Prop.MR), Prop.Seedling = mean(Prop.Seedling), Prop.SF = mean(Prop.SF), Prop.SR = mean(Prop.SR), Total = sum(Total)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=Total, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) +
+    #theme(legend.position="none") +
+    theme_bw() + ylab("Total number of ramet") + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +
+    theme(legend.position="none") + xlab(" ") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+########################
+p2 <- Stage.data[, c("Year", "Site", "Total", "Prop.inactive", "Prop.MF", "Prop.MR", "Prop.Seedling", "Prop.SF", "Prop.SR")] %>% group_by(Year, Site) %>% summarise(Prop.inactive = mean(Prop.inactive), Prop.MF = mean(Prop.MF), Prop.MR = mean(Prop.MR), Prop.Seedling = mean(Prop.Seedling), Prop.SF = mean(Prop.SF), Prop.SR = mean(Prop.SR), Total = sum(Total)) %>% ungroup() %>% filter(!Year %in% c(1990, 2008, 2009)) %>%
+  ggplot(aes(x=Year, y=Prop.inactive, fill = Site, color = Site, linetype = Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  +
+    theme_bw() + ylab("% Inactive rosette") + ylim(c(0,100)) + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +
+    theme(legend.position="none") + xlab("Census Year") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+########################
+p3 <-Stage.data[, c("Year", "Site", "Total", "Prop.inactive", "Prop.MF", "Prop.MR", "Prop.Seedling", "Prop.SF", "Prop.SR")] %>% group_by(Year, Site) %>% summarise(Prop.inactive = mean(Prop.inactive), Prop.MF = mean(Prop.MF), Prop.MR = mean(Prop.MR), Prop.Seedling = mean(Prop.Seedling), Prop.SF = mean(Prop.SF), Prop.SR = mean(Prop.SR), Total = sum(Total)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=Prop.MF, fill = Site, color = Site, linetype = Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  +
+    theme_bw() + ylab("% Flowering multiple rosette") + ylim(c(0,100)) + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + xlab("") + theme(legend.position= c(0.2, 0.8))+ theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+########################
+p4 <- Stage.data[, c("Year", "Site", "Total", "Prop.inactive", "Prop.MF", "Prop.MR", "Prop.Seedling", "Prop.SF", "Prop.SR")] %>% group_by(Year, Site) %>% summarise(Prop.inactive = mean(Prop.inactive), Prop.MF = mean(Prop.MF), Prop.MR = mean(Prop.MR), Prop.Seedling = mean(Prop.Seedling), Prop.SF = mean(Prop.SF), Prop.SR = mean(Prop.SR), Total = sum(Total)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=Prop.MR, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) +
+    #theme(legend.position="none") +
+    theme_bw() + ylab("% Multiple rosette") + ylim(c(0,100)) + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +
+    theme(legend.position="none") + xlab("Census Year") + theme(legend.position= c(0.2, 0.8))+ theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+########################
+p5 <- Stage.data[, c("Year", "Site", "Total", "Prop.inactive", "Prop.MF", "Prop.MR", "Prop.Seedling", "Prop.SF", "Prop.SR")] %>% group_by(Year, Site) %>% summarise(Prop.inactive = mean(Prop.inactive), Prop.MF = mean(Prop.MF), Prop.MR = mean(Prop.MR), Prop.Seedling = mean(Prop.Seedling), Prop.SF = mean(Prop.SF), Prop.SR = mean(Prop.SR), Total = sum(Total)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=Prop.Seedling, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) + xlab("") +
+   # theme(legend.position="none") +
+    theme_bw() + ylab("% Seedling") + ylim(c(0,100)) + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + theme(legend.position= c(0.2, 0.8))+ theme(text = element_text(size = 15),strip.text = element_text(size=15))  
+########################
+p6 <- Stage.data[, c("Year", "Site", "Total", "Prop.inactive", "Prop.MF", "Prop.MR", "Prop.Seedling", "Prop.SF", "Prop.SR")] %>% group_by(Year, Site) %>% summarise(Prop.inactive = mean(Prop.inactive), Prop.MF = mean(Prop.MF), Prop.MR = mean(Prop.MR), Prop.Seedling = mean(Prop.Seedling), Prop.SF = mean(Prop.SF), Prop.SR = mean(Prop.SR), Total = sum(Total)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=Prop.SF, fill = Site, color = Site, linetype = Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  + xlab("") +
+    theme_bw() + ylab("% Flowering single rosette") + ylim(c(0,100))+ 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + theme(legend.position= c(0.8, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+########################
+p7 <- Stage.data[, c("Year", "Site", "Total", "Prop.inactive", "Prop.MF", "Prop.MR", "Prop.Seedling", "Prop.SF", "Prop.SR")] %>% group_by(Year, Site) %>% summarise(Prop.inactive = mean(Prop.inactive), Prop.MF = mean(Prop.MF), Prop.MR = mean(Prop.MR), Prop.Seedling = mean(Prop.Seedling), Prop.SF = mean(Prop.SF), Prop.SR = mean(Prop.SR), Total = sum(Total)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=Prop.SR, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) +
+    theme_bw() + ylab("% Single rosette") + ylim(c(0,100)) + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + xlab("Census Year") + theme(legend.position=c(0.8, 0.2)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+
+p10 <- Stage.data %>% group_by(Site, Year) %>% summarise(T.Recruitment = sum(Recruitment, na.rm = T), T.Seedling = sum(Seedling, na.rm = T), Total = sum(Total, na.rm = T)) %>% ungroup() %>%
+  transform(Vegetative.reprod = T.Recruitment - T.Seedling) %>%
+  transform(seedling = ((T.Recruitment - Vegetative.reprod)/T.Recruitment)*100) %>%
+  transform(sprout = ((T.Recruitment - T.Seedling)/T.Recruitment)*100) %>%
+  transform(recruit = (100 - ((Total - T.Recruitment)/Total)*100)) %>% 
+  select("Site", "Year", "seedling", "sprout", "recruit") %>% filter(Year != 1990) %>%
+  ggplot( aes(x=Year, y=recruit, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) +
+    #theme(legend.position="right") +
+    theme_bw() + ylab("% total ramet recruits") + ylim(c(0,100)) + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + theme(legend.position= c(0.4, 0.8)) + xlab(" ") + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+###################################
+p11 <- Stage.data %>% group_by(Site, Year) %>% summarise(T.Recruitment = sum(Recruitment, na.rm = T), T.Seedling = sum(Seedling, na.rm = T), Total = sum(Total, na.rm = T)) %>% ungroup() %>%
+  transform(Vegetative.reprod = T.Recruitment - T.Seedling) %>%
+  transform(seedling = ((T.Recruitment - Vegetative.reprod)/T.Recruitment)*100) %>%
+  transform(sprout = ((T.Recruitment - T.Seedling)/T.Recruitment)*100) %>%
+  transform(recruit = ((Total - T.Recruitment)/Total)*100) %>% 
+  select("Site", "Year", "seedling", "sprout", "recruit") %>% filter(Year != 1990) %>%
+  ggplot( aes(x=Year, y=seedling, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) +
+    #theme(legend.position="right") +
+    theme_bw() + ylab("% seedling recruits") + ylim(c(0,100)) + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + theme(legend.position= c(0.2, 0.8)) + xlab(" ") + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+###################################
+p12 <-Stage.data %>% group_by(Site, Year) %>% summarise(T.Recruitment = sum(Recruitment, na.rm = T), T.Seedling = sum(Seedling, na.rm = T), Total = sum(Total, na.rm = T)) %>% ungroup() %>%
+  transform(Vegetative.reprod = T.Recruitment - T.Seedling) %>%
+  transform(seedling = ((T.Recruitment - Vegetative.reprod)/T.Recruitment)*100) %>%
+  transform(sprout = ((T.Recruitment - T.Seedling)/T.Recruitment)*100) %>%
+  transform(recruit = ((Total - T.Recruitment)/Total)*100) %>% 
+  select("Site", "Year", "seedling", "sprout", "recruit") %>% filter(Year != 1990) %>%
+  ggplot( aes(x=Year, y=sprout, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  +
+    theme_bw() + ylab("% sprout recruits") + ylim(c(0,100)) + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +
+    theme(legend.position="none") + xlab(" ") + theme(legend.position= c(0.2, 0.2)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+
+library(cowplot)
+
+plot_grid(p1,p10, p2, p6, p7, p3, p4, p5, p12, p11, labels = "AUTO", ncol=2)
+```
+
+## Total Number of Ramets (Appendix )
+
+```{r}
+
+P1 <- Stage.data %>% group_by(Site, Year) %>% summarise(T.Recruitment = sum(Recruitment, na.rm = T), T.Seedling = sum(Seedling, na.rm = T), Total = sum(Total, na.rm = T)) %>% ungroup() %>%
+  transform(Vegetative.reprod = T.Recruitment - T.Seedling) %>%
+  transform(seedling = ((T.Recruitment - Vegetative.reprod)/T.Recruitment)*100) %>%
+  transform(sprout = ((T.Recruitment - T.Seedling)/T.Recruitment)*100) %>%
+  transform(recruit = ((Total - T.Recruitment)/Total)*100) %>% 
+  select("Site", "Year", "seedling", "sprout", "recruit", "T.Recruitment") %>% filter(Year != 1990) %>%
+  ggplot( aes(x=Year, y=T.Recruitment, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  +
+    theme_bw() + ylab("# total ramet recruits") + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +
+    theme(legend.position="none") + xlab("Census Year ") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+############################################################################
+P2 <- Stage.data %>% group_by(Site, Year) %>% summarise(T.Recruitment = sum(Recruitment, na.rm = T), T.Seedling = sum(Seedling, na.rm = T), Total = sum(Total, na.rm = T)) %>% ungroup() %>%
+  transform(Vegetative.reprod = T.Recruitment - T.Seedling) %>%
+  filter(Year != 1990) %>%
+  ggplot( aes(x=Year, y=Vegetative.reprod, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  +
+    theme_bw() + ylab("# sprout recruitment") + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +
+    theme(legend.position="none") + xlab("Census Year ") +
+    theme(legend.position="right") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+#################################################################################
+P3 <- Stage.data[, c("Year", "Site", "Total", "inactive", "MF", "MR", "Seedling", "SF", "SR")] %>% group_by(Year, Site) %>% summarise(inactive = sum(inactive), MF = sum(MF), MR = sum(MR), Seedling = sum(Seedling), SF = sum(SF), SR = sum(SR), Total = sum(Total)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=Total, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) +
+    theme(legend.position="none") +
+    theme_bw() + ylab("# total ramet") + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +
+    theme(legend.position="none") + xlab("Census Year") + theme(legend.position="none") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+########################
+P4 <- Stage.data[, c("Year", "Site", "Total", "inactive", "MF", "MR", "Seedling", "SF", "SR")] %>% group_by(Year, Site) %>% summarise(inactive = sum(inactive), MF = sum(MF), MR = sum(MR), Seedling = sum(Seedling), SF = sum(SF), SR = sum(SR), Total = sum(Total)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=Seedling, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) + xlab("Census Year")+
+   # theme(legend.position="none") +
+    theme_bw() + ylab("# Seedling recruitment") + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + theme(legend.position="none") + theme(legend.position= c(0.4, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+ ###################################################### 
+P5 <-  Stage.data[, c("Year", "Site", "Total", "inactive", "MF", "MR", "Seedling", "SF", "SR")] %>% group_by(Year, Site) %>% summarise(inactive = sum(inactive), MF = sum(MF), MR = sum(MR), Seedling = sum(Seedling), SF = sum(SF), SR = sum(SR), Total = sum(Total)) %>% ungroup() %>% filter(!Year %in% c(1990, 2008, 2009)) %>%
+  ggplot(aes(x=Year, y=inactive, fill = Site, color = Site, linetype = Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  +
+    theme_bw() + ylab("# Inactive rosette") +  
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +
+    theme(legend.position="none") + xlab("Census Year") + theme(legend.position="none") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+########################
+P6 <-Stage.data[, c("Year", "Site", "Total", "inactive", "MF", "MR", "Seedling", "SF", "SR")] %>% group_by(Year, Site) %>% summarise(inactive = sum(inactive), MF = sum(MF), MR = sum(MR), Seedling = sum(Seedling), SF = sum(SF), SR = sum(SR), Total = sum(Total)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=MF, fill = Site, color = Site, linetype = Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  +
+    theme_bw() + ylab("# Flowering multiple rosette") + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + xlab("Census Year")+theme(legend.position="none") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+########################
+P7 <-Stage.data[, c("Year", "Site", "Total", "inactive", "MF", "MR", "Seedling", "SF", "SR")] %>% group_by(Year, Site) %>% summarise(inactive = sum(inactive), MF = sum(MF), MR = sum(MR), Seedling = sum(Seedling), SF = sum(SF), SR = sum(SR), Total = sum(Total)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=MR, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) +
+    #theme(legend.position="none") +
+    theme_bw() + ylab("# Multiple rosette") + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +
+    theme(legend.position="none") + xlab("Census Year") + theme(legend.position="none") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+########################
+P8 <- Stage.data[, c("Year", "Site", "Total", "inactive", "MF", "MR", "Seedling", "SF", "SR")] %>% group_by(Year, Site) %>% summarise(inactive = sum(inactive), MF = sum(MF), MR = sum(MR), Seedling = sum(Seedling), SF = sum(SF), SR = sum(SR), Total = sum(Total)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=SF, fill = Site, color = Site, linetype = Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  + xlab("Census Year") +
+    theme_bw() + ylab("# Flowering single rosette") +  
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +  theme(legend.position= c(0.4, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+########################
+P9 <- Stage.data[, c("Year", "Site", "Total", "inactive", "MF", "MR", "Seedling", "SF", "SR")] %>% group_by(Year, Site) %>% summarise(inactive = sum(inactive), MF = sum(MF), MR = sum(MR), Seedling = sum(Seedling), SF = sum(SF), SR = sum(SR), Total = sum(Total)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=SR, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) +
+    theme_bw() + ylab("# Single rosette") + 
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + xlab("Census Year") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=15))
+
+
+
+
+library(cowplot)
+
+plot_grid(P3, P5, P8, P9, P6, P7, P2, P4, labels = "AUTO", ncol=2)
+
+
+```
+
+## Mean Number of Ramets (Figure 2, main manuscripts)
+
+```{r}
+Stage.data <- read.csv("Stage.data.csv")
+P4 <- Stage.data[, c("Year", "Site", "Seedling")] %>% 
+  group_by(Year, Site) %>% 
+  summarise(Seedling.1 = mean(Seedling),
+            sd    =  sd(Seedling, na.rm = T),  # Standard deviation
+            n = length(Seedling),
+            SE_mean = sd / sqrt(n)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=Seedling.1, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) + xlab(" ") + labs(title="A: Seedling recruitment") +
+    geom_errorbar(aes(ymin=Seedling.1-SE_mean, ymax=Seedling.1+SE_mean), width=0.2, linetype=1) +
+   # theme(legend.position="none") +
+    theme_bw() + ylab(" ") + xlim(c(1990, 2009)) + ylim(c(0, 240)) +
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + theme(legend.position="none") + theme(legend.position= c(0.4, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=10))
+############################################################################
+P2 <- Stage.data %>% transform(Vegetative.reprod1 = Recruitment - Seedling) %>%
+  group_by(Site, Year) %>% 
+  summarise(Vegetative.reprod = mean(Vegetative.reprod1),
+            sd    =  sd(Vegetative.reprod1, na.rm = T),  # Standard deviation
+            n = length(Vegetative.reprod1),
+            SE_mean =  sd / sqrt(n)) %>% ungroup() %>%
+  filter(Year != 1990) %>%
+  ggplot( aes(x=Year, y=Vegetative.reprod, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  +
+    geom_errorbar(aes(ymin=Vegetative.reprod-SE_mean, ymax=Vegetative.reprod+SE_mean), width=0.2, linetype=1) + ylim(c(0, 240)) +
+    theme_bw() + ylab(" ") + labs(title="B: Sprout recruitment") +
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +
+    theme(legend.position="none") + xlab(" ") + xlim(c(1991, 2009)) +
+    theme(legend.position="right") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=10))
+
+#################################################################################
+
+P9 <- Stage.data[, c("Year", "Site", "SR")] %>% group_by(Year, Site) %>% 
+  summarise(SR.1 = mean(SR),
+            sd    =  sd(SR, na.rm = T),  # Standard deviation
+            n = length(SR),
+            SE = sd / sqrt(n)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=SR.1, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) +
+  geom_errorbar(aes(ymin=SR.1-SE, ymax=SR.1+SE), width=0.2, linetype=1) + 
+    theme_bw() + ylab(" ") + labs(title="C: Single rosette (SR)") + xlim(c(1990, 2009)) + ylim(c(0, 240)) +
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + xlab(" ") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=10))
+########################
+P7 <- Stage.data[, c("Year", "Site", "MR")] %>% group_by(Year, Site) %>% 
+  summarise(MR.1 = mean(MR), 
+            sd    =  sd(MR, na.rm = T),  # Standard deviation
+            n = length(MR),
+            SE_mean = sd / sqrt(n)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=MR.1, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) +
+  geom_errorbar(aes(ymin=MR.1-SE_mean, ymax=MR.1+SE_mean), width=0.2, linetype=1) +
+    #theme(legend.position="none") +
+    theme_bw() + ylab(" ") + labs(title="D: Multiple rosette (MR)") + xlim(c(1990, 2009)) + ylim(c(0, 240)) +
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +
+    theme(legend.position="none") + xlab(" ") + theme(legend.position="none") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=10))
+ ###################################################### 
+P8 <- Stage.data[, c("Year", "Site", "SF")] %>% group_by(Year, Site) %>% 
+  summarise(SF.1 = mean(SF),
+            sd    =  sd(SF, na.rm = T),  # Standard deviation
+            n = length(SF),
+            SE_mean = sd / sqrt(n)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=SF.1, fill = Site, color = Site, linetype = Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  + 
+  geom_errorbar(aes(ymin=SF.1-SE_mean, ymax=SF.1+SE_mean), width=0.2, linetype=1) +
+  xlab(" ") + ylim(c(0, 25)) +
+    theme_bw() + ylab(" ") + labs(title="E: Flowering single rosette (SF)") + xlim(c(1990, 2009)) +
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) +  theme(legend.position= c(0.4, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=10))
+
+########################
+P6 <- Stage.data[, c("Year", "Site","MF")] %>% group_by(Year, Site) %>% 
+  summarise(MF.1 = mean(MF), 
+            sd    =  sd(MF, na.rm = T),  # Standard deviation
+            n = length(MF),
+            SE_mean = sd / sqrt(n)) %>% ungroup() %>%
+  ggplot(aes(x=Year, y=MF.1, fill = Site, color = Site, linetype = Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  +
+  geom_errorbar(aes(ymin=MF.1-SE_mean, ymax=MF.1+SE_mean), width=0.2, linetype=1) +
+    theme_bw() + ylab(" ") + labs(title="F: Flowering multiple rosette (MF)") + xlim(c(1990, 2009)) + ylim(c(0, 25)) +
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + xlab(" ")+theme(legend.position="none") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=10))
+
+########################
+
+
+P5 <-  Stage.data[, c("Year", "Site", "inactive")] %>% group_by(Year, Site) %>% 
+  summarise(inactive.1 = mean(inactive), 
+            sd    =  sd(inactive, na.rm = T),  # Standard deviation
+            n = length(inactive),
+            SE_mean = sd / sqrt(n)) %>% ungroup() %>% 
+  filter(!Year %in% c(1990, 2008, 2009)) %>%
+  ggplot(aes(x=Year, y=inactive.1, fill = Site, color = Site, linetype = Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site))  +
+  geom_errorbar(aes(ymin=inactive.1-SE_mean, ymax=inactive.1+SE_mean), width=0.2, linetype=1) + ylim(c(0, 25)) +
+    theme_bw() + ylab(" ") +  labs(title="G: Inactive ramet (IA)") +
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + xlim(c(1991, 2009)) +
+    theme(legend.position="none") + xlab(" ") + theme(legend.position="none") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=10))
+########################
+
+P3 <- Stage.data[, c("Year", "Site", "Total")] %>% group_by(Year, Site) %>% 
+   summarise(Total.1 = mean(Total), 
+             sd    =  sd(Total, na.rm = T),  # Standard deviation
+            n = length(Total),
+            SE_mean = sd / sqrt(n)) %>% 
+  ungroup() %>%
+  ggplot(aes(x=Year, y=Total.1, fill = Site, color = Site, linetype=Site)) +
+    geom_point(aes(fill = Site)) +
+    geom_line(aes(fill = Site)) +
+    geom_errorbar(aes(ymin=Total.1-SE_mean, ymax=Total.1+SE_mean), width=0.2, linetype=1) +
+    theme(legend.position="none") +
+    theme_bw() + ylab(" ") + labs(title="H: Population size (all stages)") +
+  scale_color_manual(values = c("#009E73", "#5E3C99"),
+                        aesthetics = c("color", "fill")) + xlim(c(1990, 2009)) +
+    theme(legend.position="none") + xlab(" ") + theme(legend.position="none") + theme(legend.position= c(0.2, 0.8)) + theme(text = element_text(size = 15),strip.text = element_text(size=10))
+
+#######################################################################
+library(gridExtra)
+library(ggplot2)
+
+# Combine ggplots into one layout
+grid.arrange(
+  P4, P2, P9, P7, P8, P6,  P5, P3,   # Replace with your plot objects
+  ncol = 2
+)
+
+# Add annotations using grid graphics
+grid::grid.text(
+  "Census Year",
+  x = 0.5, y = 0.02, gp = grid::gpar(fontsize = 20),
+  just = "center"
+)
+
+grid::grid.text(
+  expression(paste("Mean number of ramets / plot")),
+  x = 0.01, y = 0.5, rot = 90, gp = grid::gpar(fontsize = 20),
+  just = "center"
+)
+```
+
+## Test for significant differences (Table 1, Main Manuscript)
+
+```{r}
+
+data_1 <- Stage.data %>% group_by(Site) %>% 
+  summarise(T.Recruitment = mean(Recruitment, na.rm = T),
+            Lower = quantile(Recruitment, 0.05, type = 8, na.rm = T),
+            Upper = quantile(Recruitment, 0.95, type = 8, na.rm = T),
+            sd    =  sd(Recruitment, na.rm = T),  # Standard deviation
+            n = length(Recruitment),
+            SE = sd / sqrt(n),
+            #T.Seedling = median(Seedling, na.rm = T), 
+            Total = mean(Total, na.rm = T)) %>% ungroup() 
+
+
+############################################################################
+data_2 <- Stage.data %>% transform(Vegetative.reprod1 = Recruitment - Seedling) %>%
+  group_by(Site, Year) %>% 
+  summarise(Vegetative.reprod = mean(Vegetative.reprod1, na.rm = T),
+            sd    =  sd(Vegetative.reprod1, na.rm = T),  # Standard deviation
+            n = length(Vegetative.reprod1),
+            SE_median =  sd / sqrt(n)) %>% ungroup() 
+
+summary(lm(Vegetative.reprod ~ Site, data = data_2))
+wilcox.test(Vegetative.reprod ~ Site, data = data_2)
+#################################################################################
+data_3 <- Stage.data[, c("Year", "Site", "Total")] %>% group_by(Site, Year) %>% 
+   summarise(Total.1 = mean(Total), 
+             sd    =  sd(Total, na.rm = T),  # Standard deviation
+            n = length(Total),
+            SE_median = sd / sqrt(n)) %>% 
+  ungroup() 
+
+summary(lm(Total.1 ~ Site, data = data_3))
+wilcox.test(Total.1 ~ Site, data = data_3)
+
+########################
+data_4 <- Stage.data[, c("Year", "Site", "Seedling")] %>% 
+  group_by(Site, Year) %>% 
+  summarise(Seedling.1 = mean(Seedling),
+            sd    =  sd(Seedling, na.rm = T),  # Standard deviation
+            n = length(Seedling),
+            SE_median = sd / sqrt(n)) %>% ungroup() 
+summary(lm(Seedling.1 ~ Site, data = data_4))
+wilcox.test(Seedling.1 ~ Site, data = data_4)
+ ###################################################### 
+data_5 <-  Stage.data[, c("Year", "Site", "inactive")] %>% group_by(Site, Year) %>% 
+  summarise(inactive.1 = mean(inactive), 
+            sd    =  sd(inactive, na.rm = T),  # Standard deviation
+            n = length(inactive),
+            SE_median = sd / sqrt(n)) %>% ungroup() 
+
+summary(lm(inactive.1 ~ Site, data = data_5))
+wilcox.test(inactive.1 ~ Site, data = data_5)
+########################
+data_6 <- Stage.data[, c("Year", "Site","MF")] %>% group_by(Site, Year) %>% 
+  summarise(MF.1 = mean(MF), 
+            sd    =  sd(MF, na.rm = T),  # Standard deviation
+            n = length(MF),
+            SE_median = sd / sqrt(n)) %>% ungroup() 
+summary(lm(MF.1 ~ Site, data = data_6))
+wilcox.test(MF.1 ~ Site, data = data_6)
+########################
+data_7 <- Stage.data[, c("Year", "Site", "MR")] %>% group_by(Site, Year) %>% 
+  summarise(MR.1 = mean(MR), 
+            sd    =  sd(MR, na.rm = T),  # Standard deviation
+            n = length(MR),
+            SE_median = sd / sqrt(n)) %>% ungroup() 
+
+summary(lm(MR.1 ~ Site, data = data_7))
+wilcox.test(MR.1 ~ Site, data = data_7)
+
+########################
+data_8 <- Stage.data[, c("Year", "Site", "SF")] %>% group_by(Site, Year) %>% 
+  summarise(SF.1 = mean(SF),
+            sd    =  sd(SF, na.rm = T),  # Standard deviation
+            n = length(SF),
+            SE_median = sd / sqrt(n)) %>% ungroup()
+summary(lm(SF.1 ~ Site, data = data_8))
+wilcox.test(SF.1 ~ Site, data = data_8)
+########################
+data_9 <- Stage.data[, c("Year", "Site", "SR")] %>% group_by(Site, Year) %>% 
+  summarise(SR.1 = mean(SR),
+            sd    =  sd(SR, na.rm = T),  # Standard deviation
+            n = length(SR),
+            SE = sd / sqrt(n)) %>% ungroup()
+  
+summary(lm(SR.1 ~ Site, data = data_9))
+wilcox.test(SR.1 ~ Site, data = data_9)
+
+
+```
+
+## 
+
+## 

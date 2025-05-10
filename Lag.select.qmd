@@ -1,0 +1,489 @@
+---
+title: "Lag Selection"
+author: "JM"
+format: html
+editor: visual
+---
+
+## 
+
+```{r}
+############## Load data ###########################
+library(RCurl)
+library(tidyverse)
+library(lmomco)
+library(dplyr)
+library(SPEI)
+library(MASS)
+library(mgcv)
+library(broom)
+library(here)
+library(purrr)
+source(here("make_data.R"))
+
+####################### Function to Extract smooth term statistics###############
+
+get_smooth_stats <- function(gg){
+  s_table <- mgcv::summary.gam(gg)$s.table
+  return(as.data.frame(s_table))
+}
+mtime <- function(files){
+  lapply(Sys.glob(files),function(x) file.info(x)$mtime)
+}
+
+Lambda.Arapaho <- read.csv("Lambda_Arapahoe.csv")
+Lambda.Arapaho$X <- NULL
+colnames(Lambda.Arapaho) <- c("year", "Lambda", "Site")
+Lambda.Niobrara <- read.csv("Lambda_Niobrara.csv")
+Lambda.Niobrara$X <- NULL
+colnames(Lambda.Niobrara) <- c("year", "Lambda", "Site")
+
+lambda <- rbind(Lambda.Arapaho, Lambda.Niobrara)
+
+Arapaho_Weather <- read_csv("Arapaho.Weather.csv")
+Niobrara_Weather <- read_csv("Niobrara.Weather.csv")
+Weather <- rbind(Arapaho_Weather, Niobrara_Weather)
+Weather <- Weather[, c(1, 2, 3, 4, 10, 8)]
+
+#Weather <- Weather[, c(1, 2,3,4, 13, 15)]
+colnames(Weather) <- c("year", "month", "ppt", "tmean", "spei", "Site")
+
+Weather <- data.frame(Weather)
+
+VR_Arapaho <- read.csv("VR_Arapahoe.csv")
+VR_Arapaho$X <- NULL
+VR_Arapaho$Site <- "Arapaho"
+VR_Niobrara <- read.csv("VR_Niobrara.csv")
+VR_Niobrara$X <- NULL
+VR_Niobrara$Site <- "Niobrara"
+
+
+VR <- rbind(VR_Niobrara, VR_Arapaho)
+colnames(VR)[colnames(VR) == 'Year'] <- 'year'
+```
+
+## SPEI
+
+```{r}
+lag_test_gams <- list()
+for (i in 1:7){
+# number of months in the past to include in GAM
+strt = 6 # starting month
+nUnits <- c(6, 12, 18, 24, 30, 36, 42)
+#k = c(3, 6, 9, 12, 15, 18)
+k = c(3, 6, -1, -1, -1, -1, -1)
+#k = c(10, 10, 10, 10, 10, 10)
+dat1 = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = lambda[lambda$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits[i],
+               meas = "spei")
+dat2 = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = lambda[lambda$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits[i],
+               meas = "spei")
+
+
+
+dat.spei = rbind(dat1, dat2)
+#  center year variable here
+dat.spei$yr = dat.spei$year - 2000
+dat.spei$lags_rev = -dat.spei$lags 
+# and now, fit a GAM
+lag_test_gams[[i]] = gam(log(Lambda) ~ Site + Site:yr + s(envCovar, by=lags_rev, bs="cs", k = k[i]), data=dat.spei, method="GCV.Cp",gamma=1.2, family = gaussian)
+  
+}   
+
+test_results <- data_frame(maxlag = nUnits,
+           k = k,
+           fits = lag_test_gams,
+           AIC = map_dbl(fits, AIC),
+           AICc = map_dbl(fits, MuMIn::AICc),
+           BIC = map_dbl(fits, BIC),
+           GCV.cp = map_dbl(fits, ~mgcv::summary.gam(.x)$sp.criterion),
+           p.value = map_dbl(fits, ~mgcv::summary.gam(.x)$s.table[, 4])
+           )
+
+test_results <- test_results %>% mutate(deltaAIC = round(AIC - min(AIC), 3))
+
+
+for (i in 1:nrow(test_results)){
+  #best.model1 = filter(test_results, deltaAIC == 0)
+  gam.check(test_results$fits[[i]]
+  )
+}
+
+Spei.plot <- data.frame(Lag.Month = c("Lag 7", "Lag 13", "Lag 19", "Lag 25", "Lag 31", "Lag 37", "Lag 43"), test_results) %>%
+ggplot(aes(x=reorder(Lag.Month, AICc), y=AICc)) + geom_col(fill = "#B43823") + xlab("Time Lag (Months)") + theme_bw() + theme(text = element_text(size = 13),
+        strip.text = element_text(size=13)) + geom_text(aes(label=deltaAIC), vjust=-0.25)
+
+
+#deltaAIC = 0.83
+```
+
+## Temperature
+
+```{r}
+lag_test_tmean <- list()
+for (i in 1:7){
+# number of months in the past to include in GAM
+strt = 6 # starting month
+nUnits <- c(6, 12, 18, 24, 30, 36, 42)
+#k = c(3, 6, 9, 12, 15, 18)
+k = c(3, 6, -1, -1, -1, -1, -1)
+#k = c(10, 10, 10, 10, 10, 10)
+dat3 = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = lambda[lambda$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits[i],
+               meas = "tmean")
+dat4 = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = lambda[lambda$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits[i],
+               meas = "tmean")
+
+
+
+dat.tmean = rbind(dat3, dat4)
+#  center year variable here
+dat.tmean$yr = dat.tmean$year - 2000
+dat.tmean$lags_rev = -dat.tmean$lags 
+# and now, fit a GAM
+lag_test_tmean[[i]] = gam(log(Lambda) ~ Site + Site:yr + s(envCovar, by=lags_rev, bs="cs", k = k[i]), data=dat.tmean, method="GCV.Cp",gamma=1.2, family = gaussian)
+  
+}  
+test_tmean <- data_frame(maxlag = nUnits,
+           k = k,
+           fits1 = lag_test_tmean,
+           AIC = map_dbl(fits1, AIC),
+           AICc = map_dbl(fits1, MuMIn::AICc),
+           BIC = map_dbl(fits1, BIC),
+           GCV.cp = map_dbl(fits1, ~mgcv::summary.gam(.x)$sp.criterion),
+           p.value = map_dbl(fits1, ~mgcv::summary.gam(.x)$s.table[, 4])
+           )
+knitr::kable(test_tmean[,-3], caption = "AIC comparisons of models for $\\lambda$ using different maximum lags.")
+
+test_tmean <- test_tmean %>% mutate(deltaAIC = round(AIC - min(AIC), 3))
+
+tmean.plot <- data.frame(Lag.Month = c("Lag 7", "Lag 13", "Lag 19", "Lag 25", "Lag 31", "Lag 37", "Lag 43"), test_tmean) %>%
+ggplot(aes(x=reorder(Lag.Month, AICc), y=AICc)) + geom_col(fill = "#B43823") + xlab("Length of Time Lag (Months)") + theme_bw() + theme(text = element_text(size = 13),
+        strip.text = element_text(size=13)) + geom_text(aes(label=deltaAIC), vjust=-0.25)
+```
+
+## Precipitation
+
+```{r}
+lag_test_ppt <- list()
+for (i in 1:7){
+# number of months in the past to include in GAM
+strt = 6 # starting month
+nUnits <- c(6, 12, 18, 24, 30, 36, 42)
+#k = c(3, 6, 9, 12, 15, 18)
+k = c(3, 6, -1, -1, -1, -1, -1)
+#k = c(10, 10, 10, 10, 10, 10)
+dat1 = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = lambda[lambda$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits[i],
+               meas = "ppt")
+dat2 = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = lambda[lambda$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits[i],
+               meas = "ppt")
+
+
+
+dat.ppt = rbind(dat1, dat2)
+#  center year variable here
+dat.ppt$yr = dat.ppt$year - 2000
+dat.ppt$lags_rev = -dat.ppt$lags 
+# and now, fit a GAM
+lag_test_ppt[[i]] = gam(log(Lambda) ~ Site + Site:yr + s(envCovar, by=lags_rev, bs="cs", k = k[i]), data=dat.ppt, method="GCV.Cp",gamma=1.2, family = gaussian)
+  
+}  
+test_ppt <- data_frame(maxlag = nUnits,
+           k = k,
+           fits3 = lag_test_ppt,
+           AIC = map_dbl(fits3, AIC),
+           AICc = map_dbl(fits3, MuMIn::AICc),
+           BIC = map_dbl(fits3, BIC),
+           GCV.cp = map_dbl(fits3, ~mgcv::summary.gam(.x)$sp.criterion),
+           p.value = map_dbl(fits3, ~mgcv::summary.gam(.x)$s.table[, 4])
+           )
+
+
+test_ppt <- test_ppt %>% mutate(deltaAIC = round(AIC - min(AIC), 3))
+
+
+
+ppt.plot <- data.frame(Lag.Month = c("Lag 7", "Lag 13", "Lag 19", "Lag 25", "Lag 31", "Lag 37", "Lag 43"), test_ppt) %>%
+ggplot(aes(x=reorder(Lag.Month, AICc), y=AICc)) + geom_col(fill = "#B43823") + xlab("Length of Time Lag (Months)") + theme_bw() + theme(text = element_text(size = 13),
+        strip.text = element_text(size=13)) + geom_text(aes(label=deltaAIC), vjust=-0.25)
+
+
+library(cowplot)
+
+plot_grid(Spei.plot, ppt.plot, tmean.plot, labels = c("A: SPEI", "B: PPT", "C: Tmean"), ncol=1)
+```
+
+## Vital Rate - SPEI
+
+```{r}
+logit <- binomial()$linkfun
+
+strt = 6 # starting month
+# number of months in the past to include in GAM
+nUnits <- c(6, 12, 18, 24, 30, 36, 42)
+#k = c(4, 4, 4, 4, 4, 4, 4)
+# remove Dsurv and FtoD from analysis -- 
+# no variation at one or more sites
+vars <- names(VR)[c(3:19, 21:25)]
+k = c(3, 6, -1, -1, -1, -1, -1)
+core.formula <- "%s ~  Site + Site:yr + s(lags_rev, by=envCovar, bs=\"cs\", k = %d)"
+VR_SPEI_gams <- crossing(vars, nUnits) # crossing sorts result alphabetically!
+VR_SPEI_gams$k <- rep(k, times = length(vars))
+#VR_SPEI_gams$maxLag <- rep(nUnits, times = length(vars))
+#VR_SPEI_gams <- left_join(VR_SPEI_gams,
+ #                         data_frame(vars, prettyvars))
+for (i in 1:nrow(VR_SPEI_gams)){
+  dat1.s = makeDat(envData = Weather[Weather$Site == "Arapaho", ],
+               response = VR[VR$Site == "Arapaho", ],
+               monthStart = strt, nUnits = VR_SPEI_gams$nUnits[i],
+               meas = "spei")
+ dat2.s = makeDat(envData = Weather[Weather$Site == "Niobrara", ],
+               response = VR[VR$Site == "Niobrara", ],
+               monthStart = strt, nUnits =  VR_SPEI_gams$nUnits[i],
+               meas = "spei")
+
+  
+  VR_SPEI_data = rbind(dat1.s, dat2.s)
+  #center year around 2004
+  VR_SPEI_data$yr = VR_SPEI_data$year - 2000
+  VR_SPEI_data$lags_rev = -VR_SPEI_data$lags 
+  # logit transform all the probability columns
+  spei1 <- lapply(VR_SPEI_data[3:19],logit)
+  spei2 <- lapply(VR_SPEI_data[21:25],log)
+  VR_SPEI_data <- cbind(VR_SPEI_data[1:2], 
+                        spei1, spei2,
+                        VR_SPEI_data[21:ncol(VR_SPEI_data)])
+  cf <- with(VR_SPEI_gams,
+             sprintf(core.formula,  
+                     vars[i], k[i]))
+  VR_SPEI_gams$fits[[i]] <-  gam(as.formula(cf), data=VR_SPEI_data, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+}
+
+
+ss <- map_df(VR_SPEI_gams$fits, get_smooth_stats)
+VR_SPEI_gams <- cbind(VR_SPEI_gams, ss)
+VR_SPEI_gams$AIC <- map_dbl(VR_SPEI_gams$fits, AIC)
+VR_SPEI_gams$BIC <- map_dbl(VR_SPEI_gams$fits, BIC)
+VR_SPEI_gams$AICc = map_dbl(VR_SPEI_gams$fits, MuMIn::AICc)
+VR_SPEI_gams <- VR_SPEI_gams %>% group_by(vars) %>% mutate(deltaAIC = AIC - min(AIC))
+
+
+
+columns <- c(1,4,2,5, 7:12)
+prettytbl <- VR_SPEI_gams[,columns]
+names(prettytbl) <- c("Vital Rate", "Model", "Lag Length",  "Estimated DF","F", "p", "AIC", "BIC", "AICc", "deltaAIC")
+
+VR_SPEI_gams$fits <- NULL
+
+write.csv(VR_SPEI_gams, "VR_SPEI_Lag.csv")
+```
+
+## Vital Rate - Temperature
+
+```{r}
+logit <- binomial()$linkfun
+
+strt = 6 # starting month
+# number of months in the past to include in GAM
+nUnits <- c(6, 12, 18, 24, 30, 36, 42)
+#k = c(4, 4, 4, 4, 4, 4, 4)
+# remove Dsurv and FtoD from analysis -- 
+# no variation at one or more sites
+vars <- names(VR)[c(3:19, 21:25)]
+k = c(3, 6, -1, -1, -1, -1, -1)
+core.formula <- "%s ~  Site + Site:yr + s(lags_rev, by=envCovar, bs=\"cs\", k = %d)"
+VR_tmean_gams <- crossing(vars, nUnits) # crossing sorts result alphabetically!
+VR_tmean_gams$k <- rep(k, times = length(vars))
+#VR_tmean_gams$maxLag <- rep(nUnits, times = length(vars))
+#VR_tmean_gams <- left_join(VR_tmean_gams,
+ #                         data_frame(vars, prettyvars))
+for (i in 1:nrow(VR_tmean_gams)){
+  dat3.t = makeDat(envData = Weather[Weather$Site == "Arapaho", ],
+               response = VR[VR$Site == "Arapaho", ],
+               monthStart = strt, nUnits = VR_tmean_gams$nUnits[i],
+               meas = "tmean")
+ dat4.t = makeDat(envData = Weather[Weather$Site == "Niobrara", ],
+               response = VR[VR$Site == "Niobrara", ],
+               monthStart = strt, nUnits =  VR_tmean_gams$nUnits[i],
+               meas = "tmean")
+
+  
+  VR_tmean_data = rbind(dat3.t, dat4.t)
+  #center year around 2004
+  VR_tmean_data$yr = VR_tmean_data$year - 2000
+  VR_tmean_data$lags_rev = -VR_tmean_data$lags 
+  # logit transform all the probability columns
+  tmean1 <- lapply(VR_tmean_data[3:19],logit)
+  tmean2 <- lapply(VR_tmean_data[21:25],log)
+  VR_tmean_data <- cbind(VR_tmean_data[1:2], 
+                        tmean1, tmean2,
+                        VR_tmean_data[21:ncol(VR_tmean_data)])
+  cf <- with(VR_tmean_gams,
+             sprintf(core.formula,  
+                     vars[i], k[i]))
+  VR_tmean_gams$fits[[i]] <-  gam(as.formula(cf), data=VR_tmean_data, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+}
+
+
+ss <- map_df(VR_tmean_gams$fits, get_smooth_stats)
+VR_tmean_gams <- cbind(VR_tmean_gams, ss)
+VR_tmean_gams$AIC <- map_dbl(VR_tmean_gams$fits, AIC)
+VR_tmean_gams$BIC <- map_dbl(VR_tmean_gams$fits, BIC)
+VR_tmean_gams$AICc = map_dbl(VR_tmean_gams$fits, MuMIn::AICc)
+VR_tmean_gams <- VR_tmean_gams %>% group_by(vars) %>% mutate(deltaAIC = AIC - min(AIC))
+
+
+
+columns <- c(1,4,2,5, 7:12)
+prettytbl.1 <- VR_tmean_gams[,columns]
+names(prettytbl.1) <- c("Vital Rate", "Model", "Lag Length",  "Estimated DF","F", "p", "AIC", "BIC", "AICc", "deltaAIC")
+
+VR_tmean_gams$fits <- NULL
+
+write.csv(VR_tmean_gams, "VR_tmean_Lag.csv")
+```
+
+## Vital Rate - PPT
+
+```{r}
+logit <- binomial()$linkfun
+
+strt = 6 # starting month
+# number of months in the past to include in GAM
+nUnits <- c(6, 12, 18, 24, 30, 36, 42)
+#k = c(4, 4, 4, 4, 4, 4, 4)
+# remove Dsurv and FtoD from analysis -- 
+# no variation at one or more sites
+vars <- names(VR)[c(3:19, 21:25)]
+k = c(3, 6, -1, -1, -1, -1, -1)
+core.formula <- "%s ~  Site + Site:yr + s(lags_rev, by=envCovar, bs=\"cs\", k = %d)"
+VR_ppt_gams <- crossing(vars, nUnits) # crossing sorts result alphabetically!
+VR_ppt_gams$k <- rep(k, times = length(vars))
+#VR_ppt_gams$maxLag <- rep(nUnits, times = length(vars))
+#VR_ppt_gams <- left_join(VR_ppt_gams,
+ #                         data_frame(vars, prettyvars))
+for (i in 1:nrow(VR_ppt_gams)){
+ dat5.p = makeDat(envData = Weather[Weather$Site == "Arapaho", ],
+               response = VR[VR$Site == "Arapaho", ],
+               monthStart = strt, nUnits = VR_ppt_gams$nUnits[i],
+               meas = "ppt")
+ dat6.p = makeDat(envData = Weather[Weather$Site == "Niobrara", ],
+               response = VR[VR$Site == "Niobrara", ],
+               monthStart = strt, nUnits =  VR_ppt_gams$nUnits[i],
+               meas = "ppt")
+
+  
+  VR_ppt_data = rbind(dat5.p, dat6.p)
+  #center year around 2004
+  VR_ppt_data$yr = VR_ppt_data$year - 2000
+  VR_ppt_data$lags_rev = -VR_ppt_data$lags 
+  # logit transform all the probability columns
+  ppt1 <- lapply(VR_ppt_data[3:19],logit)
+  ppt2 <- lapply(VR_ppt_data[21:25],log)
+  VR_ppt_data <- cbind(VR_ppt_data[1:2], 
+                        ppt1, ppt2,
+                        VR_ppt_data[21:ncol(VR_ppt_data)])
+  cf <- with(VR_ppt_gams,
+             sprintf(core.formula,  
+                     vars[i], k[i]))
+  VR_ppt_gams$fits[[i]] <-  gam(as.formula(cf), data=VR_ppt_data, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+}
+
+
+ss <- map_df(VR_ppt_gams$fits, get_smooth_stats)
+VR_ppt_gams <- cbind(VR_ppt_gams, ss)
+VR_ppt_gams$AIC <- map_dbl(VR_ppt_gams$fits, AIC)
+VR_ppt_gams$BIC <- map_dbl(VR_ppt_gams$fits, BIC)
+VR_ppt_gams$AICc = map_dbl(VR_ppt_gams$fits, MuMIn::AICc)
+VR_ppt_gams <- VR_ppt_gams %>% group_by(vars) %>% mutate(deltaAIC = AIC - min(AIC))
+
+
+
+columns <- c(1,4,2,5, 7:12)
+prettytbl.2 <- VR_ppt_gams[,columns]
+names(prettytbl.2) <- c("Vital Rate", "Model", "Lag Length",  "Estimated DF","F", "p", "AIC", "BIC", "AICc", "deltaAIC")
+
+
+#VR_ppt_gams$fits <- NULL
+#write.csv(VR_ppt_gams, "VR_ppt_Lag.csv")
+```
+
+```{r}
+lag_test_gams <- list()
+for (i in 1:7){
+# number of months in the past to include in GAM
+strt = 6 # starting month
+nUnits <- c(6, 12, 18, 24, 30, 36, 42)
+#k = c(3, 6, 9, 12, 15, 18)
+k = c(3, 6, -1, -1, -1, -1, -1)
+#k = c(10, 10, 10, 10, 10, 10)
+dat1 = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = lambda[lambda$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits[i],
+               meas = "spei_1")
+dat2 = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = lambda[lambda$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits[i],
+               meas = "spei_1")
+
+
+
+dat.spei = rbind(dat1, dat2)
+#  center year variable here
+dat.spei$yr = dat.spei$year - 2000
+dat.spei$lags_rev = -dat.spei$lags 
+# and now, fit a GAM
+lag_test_gams[[i]] = gam(log(Lambda) ~ Site + Site:yr + s(lags_rev, by=envCovar, bs="cs", k = k[i]), data=dat.spei, method="GCV.Cp",gamma=1.2, family = gaussian)
+  
+}  
+
+test_results <- data_frame(maxlag = nUnits,
+           k = k,
+           fits = lag_test_gams,
+           AIC = map_dbl(fits, AIC),
+           AICc = map_dbl(fits, MuMIn::AICc),
+           BIC = map_dbl(fits, BIC),
+           GCV.cp = map_dbl(fits, ~mgcv::summary.gam(.x)$sp.criterion),
+           p.value = map_dbl(fits, ~mgcv::summary.gam(.x)$s.table[, 4])
+           )
+
+test_results <- test_results %>% mutate(deltaAIC = AIC - min(AIC))
+
+for (i in 1:nrow(test_results)){
+  #best.model1 = filter(test_results, deltaAIC == 0)
+  lagPlot(test_results$fits[[i]], ylab = "SPEI coefficients", xlab = expression(paste("Time lag (months before end of demographic year)")) , main = test_results$maxlag[[i]], label_seasons = T, label_p = T)  + 
+theme(
+  axis.title = element_text(size = 20),
+  axis.text = element_text(size = 14),
+  )
+}
+
+for (i in 1:nrow(test_results)){
+  #best.model1 = filter(test_results, deltaAIC == 0)
+  gam.check(test_results$fits[[i]]
+  )
+}
+```
+
+## 

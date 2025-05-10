@@ -1,0 +1,1913 @@
+---
+title: "Simulation Analysis"
+author: "John Mensah"
+format: html
+editor: visual
+---
+
+## 
+
+```{r}
+library(readr)
+library(tidyverse)
+library(popbio)
+library(popdemo)
+
+spei.data <- read.csv("Lag.spei_data.csv") # load in spei weather data
+Arapaho.spei <- spei.data %>% filter(Site == "Arapaho") # we need only Niobrara data
+Arapaho.spei$X <- NULL 
+
+## calculate the mean spei for the last 18 months to represent the mean annual spei. This approach is chosen because the effect of spei on lambda was found to have equal time-lag effect.
+Arapaho.spei <- Arapaho.spei %>%
+rowwise() %>% 
+  mutate(mean.spei = mean(spei.00:spei.11)) 
+
+######### Select years of wetter-than-normal conditions
+Arapaho_wet.yrs <- Arapaho.spei %>% filter(mean.spei >0)
+Arapaho_dry.yrs <- Arapaho.spei %>% filter(mean.spei <0)
+
+unique(Arapaho_wet.yrs$Year) ## extract wet years
+unique(Arapaho_dry.yrs$Year) ## extract dry years
+
+
+```
+
+```{r}
+mat_elements <- expression(
+  ##To Seedling
+  0, 
+  0, 
+  Seedling_rec*0.9, # From flowering single rosette to Seedlings 
+  0, 
+  Seedling_rec*0.1, # From flowering multiple rosette to Seedlings 
+  0,
+  
+  ##To SR
+  Seedlingsurv*SeedlingtoSR, # From Seedlings to SR
+  (SRsurv*SRtoSR) + (SR_rec*0.9), # From SR to SR
+  0, # From SF to SR
+  (MRsurv*MRtoSR) + (SR_rec*0.1), # From MR to SR
+  0, # From MF to SR
+  IAsurv*IAtoSR, # From IA to SR
+  
+  ## To SF
+  0, # From Seedling to SF
+  (SRsurv*SRtoSF) + (SF_rec*0.9), #From SR to SF
+  0, # From SF to SF
+  (MRsurv*MRtoSF) + (SF_rec*0.1), # From MR to SF
+  0, # From MF to SF
+  IAsurv*IAtoSF, # From D to SF
+  
+  ## To MR
+  0, # From Seedling to MR
+  (SRsurv*SRtoMR + MR_rec*0.9), # From SR to MR
+  0, # From SF to MR
+  (MRsurv * MRtoMR) + (MR_rec *0.1), # From MR to MR
+  0, # From MF to MR
+  IAsurv*IAtoMR, # From D to MR
+  
+  ## To MF
+  0, # From Seedling to MF
+  (SRsurv*SRtoMF) + (MF_rec*0.9), # From SR to MF
+  0, # From SF to MF
+  (MRsurv*MRtoMF) + (MF_rec*0.1), # From MR to MF
+  0, # From MF to MF
+  0, # From D to MF
+  
+  ## To inactive
+  0, # From Seedling to IA
+  SRsurv*SRtoIA, # From SR to IA
+  0, # From SF to IA
+  MRsurv*MRtoIA, # From MR to IA
+  0, # From MF to IA
+  IAsurv*IAtoIA # From IA to IA
+)
+```
+
+theta_Arapaho1
+
+```{r}
+#Read in Stage Transition Data
+UAA <- read.csv("UAA_single.csv")
+UAB <- read.csv("UAB_single.csv")
+UAC <- read.csv("UAC_single.csv")
+UAD <- read.csv("UAD_single.csv")
+
+UAA <- UAA %>% select(-NEWROS)
+UAB <- UAB %>% select(-NEWROS)
+UAC <- UAC %>% select(-NEWROS)
+UAD <- UAD %>% select(-NEWROS)
+
+Arapahoe <- rbind(UAA, UAB, UAC, UAD)
+
+Arapahoe <- Arapahoe %>% transform(Unique.RAMET = interaction(SITE, PLOT, RAMET))
+Arapahoe <- Arapahoe %>% relocate(c(Unique.RAMET), .after = RAMET)
+
+############################################################################
+
+#Preparing Data for Survival and Stage analysis
+keeps <- c("SITE","PLOT","RAMET","Unique.RAMET", "Month","Year","NextYear","stage.modified", "NextStage", "Survival") #select only relevant columns necessary for vital rate calculation
+
+Arapahoe <- Arapahoe[keeps] # Drop all other columns, not necessary for now.
+
+colnames(Arapahoe) = c("SITE","PLOT","RAMET", "Unique.RAMET", "Month","Year","Fate.Year","state", "Fate", "Survival")
+
+## Diferentiate between natural death and death due to flowering. Set all death due to flowering to NA
+Arapahoe$Natu.Death = 1
+Arapahoe$Natu.Death[Arapahoe$Survival == "No" & Arapahoe$state == "SF"] <- NA
+Arapahoe$Natu.Death[Arapahoe$Survival == "No" & Arapahoe$state == "MF"] <- NA
+Arapahoe$Natu.Death[Arapahoe$Survival == "Yes"] <- 0
+
+FateYear.cor <- function(x){
+          D <- x
+          for(i in 1:length(x)){
+             {D[i] <- x[i]+ 1}
+            
+        }
+        return(D)
+}
+
+Arapahoe$Fate.Year <- FateYear.cor(Arapahoe$Year)
+##########################################################################################
+# define Survival
+Arapahoe$Survival[Arapahoe$Survival == "Yes"] <- 1
+Arapahoe$Survival[Arapahoe$Survival == "No"] <- 0
+
+#define emergence/dormancy
+Arapahoe$toIA = 0
+Arapahoe$toIA[Arapahoe$Fate =="inactive"]=1
+Arapahoe$toIA[Arapahoe$Survival == 0]=NA    #conditioned on Survival
+Arapahoe$toIA[Arapahoe$Fate =="not.tagged"]= NA
+
+# define MF
+Arapahoe$toMF = 0
+Arapahoe$toMF[Arapahoe$Fate == "MF"] = 1
+Arapahoe$toMF[Arapahoe$Survival == 0] = NA   #conditioned on Survival
+Arapahoe$toMF[Arapahoe$toIA == 1]=NA      #conditioned on not inactive
+Arapahoe$toMF[Arapahoe$Fate =="not.tagged"]= NA
+
+# define SF
+Arapahoe$toSF = 0
+Arapahoe$toSF[Arapahoe$Fate == "SF"] = 1
+Arapahoe$toSF[Arapahoe$Survival == 0] = NA   #conditioned on Survival
+Arapahoe$toSF[Arapahoe$toIA == 1]=NA      #conditioned on not inactive
+Arapahoe$toSF[Arapahoe$Fate =="not.tagged"]= NA
+
+#define MR plants
+Arapahoe$toMR=0
+Arapahoe$toMR[Arapahoe$Fate=="MR"]=1
+Arapahoe$toMR[Arapahoe$Survival==0]=NA #conditioned on survival
+Arapahoe$toMR[Arapahoe$toIA==1]=NA #condit on not being inactive
+Arapahoe$toMR[Arapahoe$toMF==1]=NA #condit on not multiple flowering
+Arapahoe$toMR[Arapahoe$toSF==1]=NA #condit on not Single flowering
+Arapahoe$toMR[Arapahoe$Fate =="not.tagged"]= NA
+
+#define single rosette, probability of being small or Large conditioned on survival, not flowering or not being inactive
+Arapahoe$toSR=NA
+Arapahoe$toSR[Arapahoe$Fate=="SR"]=1
+Arapahoe$toSR[Arapahoe$Fate=="MR"]=0
+Arapahoe$toSR[Arapahoe$Fate =="not.tagged"]= NA
+#######################################################
+Arapahoe$toF = 0
+Arapahoe$toF[Arapahoe$Fate == "MF"] = 1
+Arapahoe$toF[Arapahoe$Fate == "SF"] = 1
+Arapahoe$toF[Arapahoe$Survival == 0] = NA #conditioned on survival
+Arapahoe$toF[Arapahoe$toIA == 1]=NA
+Arapahoe$toF[Arapahoe$Fate =="not.tagged"]= NA
+
+##########################################Inactive Rosette Vital rate estimation #######################################
+
+inactive.data = Arapahoe[Arapahoe$state == "inactive",]
+
+  
+IAsurv<- 1   #survival for inactives is always 1!
+
+  # conditional flowering analysis for this stage class
+  m2 <- glm(toSF ~ 1 , data=inactive.data, family=binomial(link="logit")) #could not converge with random effect of year
+  B2 = try(coef(m2), T)
+  IAtoSF = try(exp(B2)/(1+exp(B2)),T)  
+
+  # conditional dormancy analysis for this stage class
+  m3 <- glm(toIA ~ 1, data=inactive.data, family=binomial(link="logit"))
+  B3 = try(coef(m3), T)
+  IAtoIA = try(exp(B3)/(1+exp(B3)),T)  
+
+  # prob of being "MR", conditional on being vegetative for this stage class
+  m4 <- glm(toMR ~ 1, data=inactive.data, family=binomial(link="logit"))
+  B4 = try(coef(m4), T)
+  IAtoMR = try(exp(B4)/(1+exp(B4)),T) 
+
+ # prob of being "SR", conditional on being vegetative for this stage class
+ m5 <- glm(toSR ~ 1 , data=inactive.data, family=binomial(link="logit"))
+  B5 = try(coef(m5), T)
+  IAtoSR = try(exp(B5)/(1+exp(B5)),T)
+
+
+##########################################Single Rosette vital rate estimation #######################################
+
+  SR.data = Arapahoe[Arapahoe$state == "SR", ]
+SR.data$Survival <- as.numeric(SR.data$Survival)
+
+############SR Survival
+m6 <- glm(Survival ~ 1, data=SR.data, family=binomial(link="logit"))   
+  B6 = try(coef(m6), T)
+  SRsurv = try(exp(B6)/(1+exp(B6)),T)  
+
+#############SR to MF
+m7 <- glm(toMF ~ 1 , data=SR.data, family=binomial(link="logit"))   
+  SRtoMF = exp(coef(m7))/(1+exp(coef(m7)))
+
+
+############SR to SF
+m8 <- glm(toSF ~ 1, data=SR.data, family=binomial(link="logit"))   
+  SRtoSF = exp(coef(m8))/(1+exp(coef(m8)))
+  
+#########################SR to inactive
+m9 <- glm(toIA ~ 1, data=SR.data, family=binomial(link="logit"))  
+  SRtoIA = exp(coef(m9))/(1+exp(coef(m9)))
+  
+
+
+#########################SR to MR
+m10 <- glm(toMR ~ 1, data=SR.data, family=binomial(link="logit"))   
+  SRtoMR = exp(coef(m10))/(1+exp(coef(m10)))
+  
+
+#########################SR to SR
+m11 <- glm(toSR ~ 1 , data=SR.data, family=binomial(link="logit"))   
+  SRtoSR = exp(coef(m11))/(1+exp(coef(m11)))
+  
+##########################################Single Rosette vital rate estimation #######################################
+  
+MR.data = Arapahoe[Arapahoe$state == "MR", ]
+MR.data$Survival <- as.numeric(MR.data$Survival)
+
+ # conditional dormancy analysis for this stage class
+  m12 <- glm(Survival ~ 1 , data=MR.data, family=binomial(link="logit"))
+  MRsurv = exp(coef(m12))/(1+exp(coef(m12)))
+
+
+ ##############################
+ m13 <- glm(toIA ~ 1 , data=MR.data, family=binomial(link="logit"))
+  MRtoIA = exp(coef(m13))/(1+exp(coef(m13)))
+
+###############################
+
+m14 <- glm(toSF ~ 1 , data=MR.data, family=binomial(link="logit"))
+  MRtoSF = exp(coef(m14))/(1+exp(coef(m14)))
+
+
+###############################
+
+m15 <- glm(toMF ~ 1 , data=MR.data, family=binomial(link="logit"))
+  MRtoMF = exp(coef(m15))/(1+exp(coef(m15)))
+
+###############################
+
+m16 <- glm(toMR ~ 1 , data=MR.data, family=binomial(link="logit"))
+  MRtoMR = exp(coef(m16))/(1+exp(coef(m16)))
+
+################################
+m17 <- glm(toSR ~ 1, data=MR.data, family=binomial(link="logit"))
+  MRtoSR = exp(coef(m17))/(1+exp(coef(m17)))
+
+  
+###################################### Seedling  ############################################
+Seedling.data = Arapahoe[Arapahoe$state == "Seedling", ]
+Seedling.data$Survival <- as.numeric(Seedling.data$Survival)
+
+#######################
+m18 <- glm(Survival ~ 1, data=Seedling.data, family=binomial(link="logit"))
+    Seedlingsurv = exp(coef(m18))/(1+exp(coef(m18)))
+    
+
+#######################
+m19 <- glm(toSR ~ 1, data=Seedling.data, family=binomial(link="logit"))
+  SeedlingtoSR = exp(coef(m19))/(1+exp(coef(m19)))
+  
+###################################################################################################################
+library(reshape2)
+Arapahoe1 <- rbind(UAA, UAB, UAC, UAD)
+Arapahoe1 <- Arapahoe1 %>% transform(Unique.RAMET = interaction(SITE, PLOT, RAMET))
+Arapahoe1 <- Arapahoe1 %>% relocate(c(Unique.RAMET), .after = RAMET)
+#Preparing Data for Survival and Stage analysis
+Arapahoe1.rec = dcast(Arapahoe1,  SITE+PLOT+RAMET+Unique.RAMET+stage.modified+Year ~ PrevStage, value.var = "PrevStage")#This code is to extract plant individuals that appeared for their first time.
+
+Arapahoe1.rec <- Arapahoe1.rec %>% select(SITE,PLOT, RAMET, Unique.RAMET, Year, stage.modified,  First.Appearance) %>% filter(First.Appearance == 1)
+
+Arapahoe1.rec <- dcast(Arapahoe1.rec,  PLOT+Year ~ stage.modified, value.var = "stage.modified") 
+
+Arapahoe1.rec <- Arapahoe1.rec %>% 
+  rowwise() %>% 
+  mutate(Flowering_rec = sum(MF, SF, na.rm = TRUE))
+
+#Arapahoe1.rec <- Arapahoe1.rec %>% select(PLOT, Year, MR, Seedling, SR, Flowering_rec)
+
+FateYear.cor <- function(x){
+          D <- x
+          for(i in 1:length(x)){
+             {D[i] <- x[i]+ 1}
+            
+        }
+        return(D)
+}
+
+Arapahoe1$Fate.Year <- FateYear.cor(Arapahoe1$Year)
+
+Arapahoe1 = dcast(Arapahoe1,  PLOT+Fate.Year ~ stage.modified, value.var = "stage.modified")%>% select(PLOT, Fate.Year, MF, SF, MR,  SR)
+
+Arapahoe1 <- Arapahoe1 %>% 
+  rowwise() %>% 
+  mutate(Flowering_t = sum(MF, SF, na.rm = TRUE))%>%
+  mutate(Rosette_t = sum(MR, SR, na.rm = TRUE))
+
+Arapahoe1 <- Arapahoe1 %>% select(PLOT, Fate.Year, Flowering_t, Rosette_t) %>% filter(Fate.Year != 2010)
+colnames(Arapahoe1) = c("PLOT","Year", "Flowering_t", "Rosette_t")
+
+Arapahoe1.rec <- cbind(Arapahoe1.rec, Flowering_t = Arapahoe1$Flowering_t, Rosette_t = Arapahoe1$Rosette_t)
+
+#################################################################################################################
+
+m21 <- glm(MR ~ 1 + offset(log(Rosette_t + 1)), data = Arapahoe1.rec, family=poisson(link=log))
+MRrec = exp(coef(m21))
+
+
+###########################################
+m22 <- glm(SR ~ 1 + offset(log(Rosette_t + 1)), data = Arapahoe1.rec, family=poisson(link=log))
+SRrec = exp(coef(m22))
+
+
+###########################################
+m23 <- glm(MF ~ 1 + offset(log(Rosette_t + 1)), data = Arapahoe1.rec, family=poisson(link=log))
+MF_rec = exp(coef(m23))
+
+
+###########################################
+m24 <- glm(SF ~ 1 + offset(log(Rosette_t + 1)), data = Arapahoe1.rec, family=poisson(link=log))
+SF_rec = exp(coef(m24))
+
+
+###########################################
+m25 <- glm(Seedling ~ 1 + offset(log(Flowering_t + 1)), data = Arapahoe1.rec, family=poisson(link=log))
+Seedling_rec = exp(coef(m25))
+
+
+##################################################################################
+
+##########################################
+IAsurv<-as.matrix(IAsurv)
+IAtoSF<-as.matrix(IAtoSF)
+#IAtoMF<-as.matrix(IAtoMF)
+IAtoIA<-as.matrix(IAtoIA)
+IAtoMR<-as.matrix(IAtoMR)
+IAtoSR <-as.matrix(IAtoSR)
+SRsurv <- as.matrix(SRsurv)
+SRtoIA<-as.matrix(SRtoIA)
+SRtoSF<-as.matrix(SRtoSF)
+SRtoMF<-as.matrix(SRtoMF)
+SRtoMR<-as.matrix(SRtoMR)
+SRtoSR <-as.matrix(SRtoSR)
+MRsurv<-as.matrix(MRsurv)
+MRtoSF<-as.matrix(MRtoSF)
+MRtoSF<-as.matrix(MRtoSF)
+MRtoIA<-as.matrix(MRtoIA) 
+MRtoMR<-as.matrix(MRtoMR)
+MRtoSR <-as.matrix(MRtoSR)
+Seedlingsurv<-as.matrix(Seedlingsurv)
+SeedlingtoSR<-as.matrix(SeedlingtoSR)
+MR_rec <- as.matrix(MRrec)
+SR_rec <- as.matrix(SRrec)
+SF_rec <- as.matrix(SF_rec)
+MF_rec <- as.matrix(MF_rec)
+Seedling_rec <- as.matrix(Seedling_rec)
+
+VR_Arapaho1 <- cbind(IAsurv, IAtoSF, IAtoIA, IAtoMR, IAtoSR, SRsurv, SRtoIA, SRtoSF, SRtoMF, SRtoMR, SRtoSR, MRsurv, MRtoSF, MRtoMF, MRtoIA, MRtoMR, MRtoSR, Seedlingsurv, SeedlingtoSR, MRrec, SRrec, SF_rec, MF_rec, Seedling_rec)
+round(VR_Arapaho1, digits = 3)
+
+colnames(VR_Arapaho1) <- c("IAsurv", "IAtoSF", "IAtoIA", "IAtoMR", "IAtoSR", "SRsurv", "SRtoIA", "SRtoSF","SRtoMF", "SRtoMR", "SRtoSR", "MRsurv", "MRtoSF","MRtoMF", "MRtoIA", "MRtoMR", "MRtoSR", "Seedlingsurv", "SeedlingtoSR", "MR_rec", "SR_rec", "SF_rec","MF_rec", "Seedling_rec")
+
+VR_Arapaho1 <- data.frame(VR_Arapaho1)
+
+rownames(VR_Arapaho1) <- NULL
+VR_Arapaho1 <- colMeans(VR_Arapaho1)
+
+theta_Arapaho1 = list(IAsurv=VR_Arapaho1[1], IAtoSF=VR_Arapaho1[2], IAtoIA=VR_Arapaho1[3],
+                 IAtoMR =VR_Arapaho1[4],IAtoSR=VR_Arapaho1[5], SRsurv=VR_Arapaho1[6], 
+                 SRtoIA=VR_Arapaho1[7], SRtoSF=VR_Arapaho1[8], SRtoMF=VR_Arapaho1[9], 
+                 SRtoMR=VR_Arapaho1[10], SRtoSR=VR_Arapaho1[11], MRsurv=VR_Arapaho1[12],
+                 MRtoSF=VR_Arapaho1[13], MRtoMF=VR_Arapaho1[14], MRtoIA=VR_Arapaho1[15], 
+                 MRtoMR=VR_Arapaho1[16], MRtoSR=VR_Arapaho1[17], Seedlingsurv=VR_Arapaho1[18], SeedlingtoSR=VR_Arapaho1[19], MR_rec=VR_Arapaho1[20], SR_rec=VR_Arapaho1[21], SF_rec=VR_Arapaho1[22], MF_rec=VR_Arapaho1[23], Seedling_rec=VR_Arapaho1[24])
+
+Amn_Arapaho1 <- matrix(sapply(mat_elements, eval, theta_Arapaho1), 6,6, byrow=F)
+
+stage.names <- c("Seedling", "SR", "SF", "MR", "MF", "Inactive")
+SSD <- eigs(Amn_Arapaho1)$ss
+
+SSD <- data.frame(SSD)
+
+rownames(SSD) <- stage.names 
+
+#######################################################################
+
+SSD %>% rownames_to_column(var="Stages") %>% ggplot(aes(x=factor(Stages, levels=c("Seedling", "SR","MR","SF","MF","Inactive")), y=SSD)) + geom_bar(stat = "identity", aes(fill = Stages), show.legend = FALSE) + ylab("Stable Stage Distribution") + scale_fill_viridis_d() + xlab("Stages") + theme_bw() + ggtitle(" Arapaho") + theme(text = element_text(size = 15),
+        strip.text = element_text(size=15))
+```
+
+```{r}
+#Read in Stage Transition Data
+UNK <- read.csv("UNK_single.csv")
+UNL <- read.csv("UNL_single.csv")
+UNM <- read.csv("UNM_single.csv")
+
+
+UNK <- UNK %>% select(-NEWROS)
+UNL <- UNL %>% select(-NEWROS)
+UNM <- UNM %>% select(-NEWROS)
+
+UNK$PLOT[UNK$PLOT == "PLOT K"] <- "Plot K"
+
+Niobrara <- rbind(UNL, UNM, UNK)
+
+Niobrara <- Niobrara %>% transform(Unique.RAMET = interaction(SITE, PLOT, RAMET))
+Niobrara <- Niobrara %>% relocate(c(Unique.RAMET), .after = RAMET)
+
+############################################################################
+
+#Preparing Data for Survival and Stage analysis
+keeps <- c("SITE","PLOT","RAMET","Unique.RAMET", "Month","Year","NextYear","stage.modified", "NextStage", "Survival") #Keep only relevant columns necessary for vital rate calculation
+
+Niobrara <- Niobrara[keeps] # Drop all other columns, not necessary for now.
+
+colnames(Niobrara) = c("SITE","PLOT","RAMET", "Unique.RAMET", "Month","Year","Fate.Year","state", "Fate", "Survival")
+
+Niobrara$Natu.Death = 1
+Niobrara$Natu.Death[Niobrara$Survival == "No" & Niobrara$state == "SF"] <- NA
+Niobrara$Natu.Death[Niobrara$Survival == "No" & Niobrara$state == "MF"] <- NA
+Niobrara$Natu.Death[Niobrara$Survival == "Yes"] <- 0
+
+FateYear.cor <- function(x){
+          D <- x
+          for(i in 1:length(x)){
+             {D[i] <- x[i]+ 1}
+            
+        }
+        return(D)
+}
+
+Niobrara$Fate.Year <- FateYear.cor(Niobrara$Year)
+##########################################################################################
+# define Survival
+Niobrara$Survival[Niobrara$Survival == "Yes"] <- 1
+Niobrara$Survival[Niobrara$Survival == "No"] <- 0
+
+#define emergence/dormancy
+Niobrara$toIA = 0
+Niobrara$toIA[Niobrara$Fate =="inactive"]=1
+Niobrara$toIA[Niobrara$Survival == 0]=NA    #conditioned on Survival
+Niobrara$toIA[Niobrara$Fate =="not.tagged"]= NA
+
+# define MF
+Niobrara$toMF = 0
+Niobrara$toMF[Niobrara$Fate == "MF"] = 1
+Niobrara$toMF[Niobrara$Survival == 0] = NA   #conditioned on Survival
+Niobrara$toMF[Niobrara$toIA == 1]=NA      #conditioned on not inactive
+Niobrara$toMF[Niobrara$Fate =="not.tagged"]= NA
+
+# define SF
+Niobrara$toSF = 0
+Niobrara$toSF[Niobrara$Fate == "SF"] = 1
+Niobrara$toSF[Niobrara$Survival == 0] = NA   #conditioned on Survival
+Niobrara$toSF[Niobrara$toIA == 1]=NA      #conditioned on not inactive
+Niobrara$toSF[Niobrara$Fate =="not.tagged"]= NA
+
+#define MR plants
+Niobrara$toMR=0
+Niobrara$toMR[Niobrara$Fate=="MR"]=1
+Niobrara$toMR[Niobrara$Survival==0]=NA #conditioned on survival
+Niobrara$toMR[Niobrara$toIA==1]=NA #condit on not being inactive
+Niobrara$toMR[Niobrara$toMF==1]=NA #condit on not multiple flowering
+Niobrara$toMR[Niobrara$toSF==1]=NA #condit on not Single flowering
+Niobrara$toMR[Niobrara$Fate =="not.tagged"]= NA
+
+#define single rosette, probability of being small or Large condit on survival, not flowering or not being inactive
+Niobrara$toSR=NA
+Niobrara$toSR[Niobrara$Fate=="SR"]=1
+Niobrara$toSR[Niobrara$Fate=="MR"]=0
+Niobrara$toSR[Niobrara$Fate =="not.tagged"]= NA
+#######################################################
+Niobrara$toF = 0
+Niobrara$toF[Niobrara$Fate == "MF"] = 1
+Niobrara$toF[Niobrara$Fate == "SF"] = 1
+Niobrara$toF[Niobrara$Survival == 0] = NA #conditioned on survival
+Niobrara$toF[Niobrara$toIA == 1]=NA
+Niobrara$toF[Niobrara$Fate =="not.tagged"]= NA
+
+##########################################Inactive Rosette Vital rate estimation #######################################
+
+inactive.data = Niobrara[Niobrara$state == "inactive",]
+
+  
+IAsurv1 <- 1   #survival for inactives is always 1!
+
+  # conditional flowering analysis for this stage class
+  m2 <- glm(toSF ~ 1 , data=inactive.data, family=binomial(link="logit")) #could not converge with random effect of year
+  B2 = try(coef(m2), T)
+  IAtoSF1 = try(exp(B2)/(1+exp(B2)),T)  
+
+  # conditional dormancy analysis for this stage class
+  m3 <- glm(toIA ~ 1, data=inactive.data, family=binomial(link="logit"))
+  B3 = try(coef(m3), T)
+  IAtoIA1 = try(exp(B3)/(1+exp(B3)),T)  
+
+  # prob of being "MR", conditional on being vegetative for this stage class
+  m4 <- glm(toMR ~ 1, data=inactive.data, family=binomial(link="logit"))
+  B4 = try(coef(m4), T)
+  IAtoMR1 = try(exp(B4)/(1+exp(B4)),T) 
+
+ # prob of being "SR", conditional on being vegetative for this stage class
+ m5 <- glm(toSR ~ 1 , data=inactive.data, family=binomial(link="logit"))
+  B5 = try(coef(m5), T)
+  IAtoSR1 = try(exp(B5)/(1+exp(B5)),T)
+
+
+##########################################Single Rosette vital rate estimation #######################################
+
+  SR.data = Niobrara[Niobrara$state == "SR", ]
+SR.data$Survival <- as.numeric(SR.data$Survival)
+
+############SR Survival
+m6 <- glm(Survival ~ 1, data=SR.data, family=binomial(link="logit"))   
+  B6 = try(coef(m6), T)
+  SRsurv1 = try(exp(B6)/(1+exp(B6)),T)  
+
+#############SR to MF
+m7 <- glm(toMF ~ 1 , data=SR.data, family=binomial(link="logit"))   
+  SRtoMF1 = exp(coef(m7))/(1+exp(coef(m7)))
+
+
+############SR to SF
+m8 <- glm(toSF ~ 1, data=SR.data, family=binomial(link="logit"))   
+  SRtoSF1 = exp(coef(m8))/(1+exp(coef(m8)))
+  
+#########################SR to inactive
+m9 <- glm(toIA ~ 1, data=SR.data, family=binomial(link="logit"))  
+  SRtoIA1 = exp(coef(m9))/(1+exp(coef(m9)))
+  
+
+
+#########################SR to MR
+m10 <- glm(toMR ~ 1, data=SR.data, family=binomial(link="logit"))   
+  SRtoMR1 = exp(coef(m10))/(1+exp(coef(m10)))
+  
+
+#########################SR to SR
+m11 <- glm(toSR ~ 1 , data=SR.data, family=binomial(link="logit"))   
+  SRtoSR1 = exp(coef(m11))/(1+exp(coef(m11)))
+  
+##########################################Single Rosette vital rate estimation #######################################
+  
+MR.data = Niobrara[Niobrara$state == "MR", ]
+MR.data$Survival <- as.numeric(MR.data$Survival)
+
+ # conditional dormancy analysis for this stage class
+  m12 <- glm(Survival ~ 1 , data=MR.data, family=binomial(link="logit"))
+  MRsurv1 = exp(coef(m12))/(1+exp(coef(m12)))
+
+
+ ##############################
+ m13 <- glm(toIA ~ 1 , data=MR.data, family=binomial(link="logit"))
+  MRtoIA1 = exp(coef(m13))/(1+exp(coef(m13)))
+
+###############################
+
+m14 <- glm(toSF ~ 1 , data=MR.data, family=binomial(link="logit"))
+  MRtoSF1 = exp(coef(m14))/(1+exp(coef(m14)))
+
+
+###############################
+
+m15 <- glm(toMF ~ 1 , data=MR.data, family=binomial(link="logit"))
+  MRtoMF1 = exp(coef(m15))/(1+exp(coef(m15)))
+
+###############################
+
+m16 <- glm(toMR ~ 1 , data=MR.data, family=binomial(link="logit"))
+  MRtoMR1 = exp(coef(m16))/(1+exp(coef(m16)))
+
+################################
+m17 <- glm(toSR ~ 1, data=MR.data, family=binomial(link="logit"))
+  MRtoSR1 = exp(coef(m17))/(1+exp(coef(m17)))
+
+  
+###################################### Seedling  ############################################
+Seedling.data = Niobrara[Niobrara$state == "Seedling", ]
+Seedling.data$Survival <- as.numeric(Seedling.data$Survival)
+
+#######################
+m18 <- glm(Survival ~ 1, data=Seedling.data, family=binomial(link="logit"))
+    Seedlingsurv1 = exp(coef(m18))/(1+exp(coef(m18)))
+    
+
+#######################
+m19 <- glm(toSR ~ 1, data=Seedling.data, family=binomial(link="logit"))
+  SeedlingtoSR1 = exp(coef(m19))/(1+exp(coef(m19)))
+  
+###################################################################################################################
+library(reshape2)
+Niobrara1 <- rbind(UNL, UNM, UNK)
+Niobrara1 <- Niobrara1 %>% transform(Unique.RAMET = interaction(SITE, PLOT, RAMET))
+Niobrara1 <- Niobrara1 %>% relocate(c(Unique.RAMET), .after = RAMET)
+#Preparing Data for Survival and Stage analysis
+Niobrara1.rec = dcast(Niobrara1,  SITE+PLOT+RAMET+Unique.RAMET+stage.modified+Year ~ PrevStage, value.var = "PrevStage")#This code is to extract plant individuals that appeared for their first time.
+
+Niobrara1.rec <- Niobrara1.rec %>% select(SITE,PLOT, RAMET, Unique.RAMET, Year, stage.modified,  First.Appearance) %>% filter(First.Appearance == "First.Appearance")
+
+Niobrara1.rec <- dcast(Niobrara1.rec,  PLOT+Year ~ stage.modified, value.var = "stage.modified") 
+
+Niobrara1.rec <- Niobrara1.rec %>% 
+  rowwise() %>% 
+  mutate(Flowering_rec = sum(MF, SF, na.rm = TRUE))
+
+#Niobrara1.rec <- Niobrara1.rec %>% select(PLOT, Year, MR, Seedling, SR, Flowering_rec)
+
+FateYear.cor <- function(x){
+          D <- x
+          for(i in 1:length(x)){
+             {D[i] <- x[i]+ 1}
+            
+        }
+        return(D)
+}
+
+Niobrara1$Fate.Year <- FateYear.cor(Niobrara1$Year)
+
+Niobrara1 = dcast(Niobrara1,  PLOT+Fate.Year ~ stage.modified, value.var = "stage.modified")%>% select(PLOT, Fate.Year, MF, SF, MR,  SR)
+
+Niobrara1 <- Niobrara1 %>% 
+  rowwise() %>% 
+  mutate(Flowering_t = sum(MF, SF, na.rm = TRUE))%>%
+  mutate(Rosette_t = sum(MR, SR, na.rm = TRUE))
+
+Niobrara1 <- Niobrara1 %>% filter(Fate.Year != 2010)
+colnames(Niobrara1) = c("PLOT","Year","T.MF","T.SF", "T.MR","T.SR", "Flowering_t", "Rosette_t")
+
+Niobrara1.rec <- cbind(Niobrara1.rec, Flowering_t = Niobrara1$Flowering_t,  Rosette_t = Niobrara1$Rosette_t)
+
+#################################################################################################################
+
+m21 <- glm(MR ~ 1 + offset(log(Rosette_t + 1)), data = Niobrara1.rec, family=poisson(link=log))
+MRrec1 = exp(coef(m21))
+
+
+###########################################
+m22 <- glm(SR ~ 1 + offset(log(Rosette_t + 1)), data = Niobrara1.rec, family=poisson(link=log))
+SRrec1 = exp(coef(m22))
+
+
+###########################################
+m23 <- glm(MF ~ 1 + offset(log(Rosette_t + 1)), data = Niobrara1.rec, family=poisson(link=log))
+MF_rec1 = exp(coef(m23))
+
+
+###########################################
+m24 <- glm(SF ~ 1 + offset(log(Rosette_t + 1)), data = Niobrara1.rec, family=poisson(link=log))
+SF_rec1 = exp(coef(m24))
+
+
+###########################################
+m25 <- glm(Seedling ~ 1 + offset(log(Flowering_t + 1)), data = Niobrara1.rec, family=poisson(link=log))
+Seedling_rec1 = exp(coef(m25))
+
+
+##################################################################################
+
+##########################################
+IAsurv1<-as.matrix(IAsurv1)
+IAtoSF1<-as.matrix(IAtoSF1)
+#IAtoMF<-as.matrix(IAtoMF)
+IAtoIA1<-as.matrix(IAtoIA1)
+IAtoMR1<-as.matrix(IAtoMR1)
+IAtoSR1 <-as.matrix(IAtoSR1)
+SRsurv1 <- as.matrix(SRsurv1)
+SRtoIA1<-as.matrix(SRtoIA1)
+SRtoSF1<-as.matrix(SRtoSF1)
+SRtoMF1<-as.matrix(SRtoMF1)
+SRtoMR1<-as.matrix(SRtoMR1)
+SRtoSR1 <-as.matrix(SRtoSR1)
+MRsurv1<-as.matrix(MRsurv1)
+MRtoSF1<-as.matrix(MRtoSF1)
+MRtoS1F<-as.matrix(MRtoSF1)
+MRtoIA1<-as.matrix(MRtoIA1) 
+MRtoMR1<-as.matrix(MRtoMR1)
+MRtoSR1 <-as.matrix(MRtoSR1)
+Seedlingsurv1<-as.matrix(Seedlingsurv1)
+SeedlingtoSR1<-as.matrix(SeedlingtoSR1)
+MR_rec1 <- as.matrix(MRrec1)
+SR_rec1 <- as.matrix(SRrec1)
+SF_rec1 <- as.matrix(SF_rec1)
+MF_rec1 <- as.matrix(MF_rec1)
+Seedling_rec1 <- as.matrix(Seedling_rec1)
+
+VR_Niobrara1 <- cbind(IAsurv1, IAtoSF1, IAtoIA1, IAtoMR1, IAtoSR1, SRsurv1, SRtoIA1, SRtoSF1, SRtoMF1, SRtoMR1, SRtoSR1, MRsurv1, MRtoSF1, MRtoMF1, MRtoIA1, MRtoMR1, MRtoSR1, Seedlingsurv1, SeedlingtoSR1, MRrec1, SRrec1, SF_rec1, MF_rec1, Seedling_rec1)
+round(VR_Arapaho1, digits = 3)
+
+colnames(VR_Niobrara1) <- c("IAsurv", "IAtoSF", "IAtoIA", "IAtoMR", "IAtoSR", "SRsurv", "SRtoIA", "SRtoSF","SRtoMF", "SRtoMR", "SRtoSR", "MRsurv", "MRtoSF","MRtoMF", "MRtoIA", "MRtoMR", "MRtoSR", "Seedlingsurv", "SeedlingtoSR", "MR_rec", "SR_rec", "SF_rec","MF_rec", "Seedling_rec")
+
+VR_Niobrara1 <- data.frame(VR_Niobrara1)
+
+rownames(VR_Niobrara1) <- NULL
+VR_Niobrara1 <- colMeans(VR_Niobrara1)
+
+theta_Niobrara1 = list(IAsurv=VR_Niobrara1[1], IAtoSF=VR_Niobrara1[2], IAtoIA=VR_Niobrara1[3],
+                 IAtoMR =VR_Niobrara1[4],IAtoSR=VR_Niobrara1[5], SRsurv=VR_Niobrara1[6], 
+                 SRtoIA=VR_Niobrara1[7], SRtoSF=VR_Niobrara1[8], SRtoMF=VR_Niobrara1[9], 
+                 SRtoMR=VR_Niobrara1[10], SRtoSR=VR_Niobrara1[11], MRsurv=VR_Niobrara1[12],
+                 MRtoSF=VR_Niobrara1[13], MRtoMF=VR_Niobrara1[14], MRtoIA=VR_Niobrara1[15], 
+                 MRtoMR=VR_Niobrara1[16], MRtoSR=VR_Niobrara1[17], Seedlingsurv=VR_Niobrara1[18], SeedlingtoSR=VR_Niobrara1[19], MR_rec=VR_Niobrara1[20], SR_rec=VR_Niobrara1[21], SF_rec=VR_Niobrara1[22], MF_rec=VR_Niobrara1[23], Seedling_rec=VR_Niobrara1[24])
+
+Amn_Niobrara1 <- matrix(sapply(mat_elements, eval, theta_Niobrara1), 6,6, byrow=F)
+
+stage.names <- c("Seedling", "SR", "SF", "MR", "MF", "Inactive")
+SSD1 <- eigs(Amn_Niobrara1)$ss
+
+SSD1 <- data.frame(SSD1)
+
+rownames(SSD1) <- stage.names 
+
+#######################################################################
+
+SSD1 %>% rownames_to_column(var="Stages") %>% ggplot(aes(x=factor(Stages, levels=c("Seedling", "SR","MR","SF","MF","Inactive")), y=SSD1)) + geom_bar(stat = "identity", aes(fill = Stages), show.legend = FALSE) + ylab("Stable Stage Distribution") + scale_fill_viridis_d() + xlab("Stages") + theme_bw() + ggtitle(" Arapaho") + theme(text = element_text(size = 15),
+        strip.text = element_text(size=15))
+```
+
+```{r}
+VR_Arapahoe <- read_csv("VR_Arapahoe.csv")
+VR_Arapahoe$...1 <- NULL
+
+
+Mean_Arapaho <- colMeans(VR_Arapahoe[2:25])
+
+theta_Arapaho = list(IAsurv=Mean_Arapaho[1], IAtoSF=Mean_Arapaho[2], IAtoIA=Mean_Arapaho[3],
+                 IAtoMR =Mean_Arapaho[4],IAtoSR=Mean_Arapaho[5], SRsurv=Mean_Arapaho[6], 
+                 SRtoIA=Mean_Arapaho[7], SRtoSF=Mean_Arapaho[8], SRtoMF=Mean_Arapaho[9], 
+                 SRtoMR=Mean_Arapaho[10], SRtoSR=Mean_Arapaho[11], MRsurv=Mean_Arapaho[12],
+                 MRtoSF=Mean_Arapaho[13], MRtoMF=Mean_Arapaho[14], MRtoIA=Mean_Arapaho[15], 
+                 MRtoMR=Mean_Arapaho[16], MRtoSR=Mean_Arapaho[17], Seedlingsurv=Mean_Arapaho[18], SeedlingtoSR=Mean_Arapaho[19], MR_rec=Mean_Arapaho[20], SR_rec=Mean_Arapaho[21], SF_rec=Mean_Arapaho[22], MF_rec=Mean_Arapaho[23], Seedling_rec=Mean_Arapaho[24])
+
+Amn_Arapaho <- matrix(sapply(mat_elements,eval,theta_Arapaho), 6,6, byrow=F)
+
+stage.names <- c("Seedling", "SR", "SF", "MR", "MF", "Inactive")
+SSD <- eigs(Amn_Arapaho)$ss
+SSD <- data.frame(SSD)
+
+rownames(SSD) <- stage.names 
+#SSD%>% tibble::rownames_to_column("Stage") %>% ggplot(aes(x=Stage, y=SSD, fill = Stage)) + geom_bar(position="stack", stat="identity") + theme_bw()
+
+#######################################################################
+
+SSD.A_plot <- SSD %>% rownames_to_column(var="Stages") %>% ggplot(aes(x=factor(Stages, levels=c("Seedling", "SR","MR","SF","MF","Inactive")), y=SSD)) + geom_bar(stat = "identity", aes(fill = Stages), show.legend = FALSE) + ylab("Stable Stage Distribution") + scale_fill_viridis_d() + xlab("Stages") + theme_bw() + ggtitle(" Arapaho") + theme(text = element_text(size = 15),
+        strip.text = element_text(size=15))
+
+
+#####################Elasticity and Sensitivity Analysis############################
+
+sensvec_Arapaho <- vitalsens(elements=mat_elements, vitalrates=theta_Arapaho)
+
+sensvec_Arapaho <- sensvec_Arapaho%>% tibble::rownames_to_column("Stage")
+
+sensvec_Arapaho <- separate(sensvec_Arapaho, Stage, into = c("Stage", "Del"), sep = "\\.")
+
+sensvec_Arapaho$Del <- NULL
+
+sensvec_Arapaho <- sensvec_Arapaho %>% transform(Rel.elast = elasticity/1.576166)
+
+sensvec_Arapaho$Stage <- factor(sensvec_Arapaho$Stage, 
+                             levels = c("IAtoIA","IAtoMR","IAtoSF", "IAtoSR","MRtoIA","MRtoMR","MRtoMF", 
+                                        "MRtoSF", "MRtoSR", "SRtoIA", "SRtoMR", "SRtoMF", "SRtoSF", "SRtoSR",                                           "SeedlingtoSR",
+                                        "Seedling_rec","SR_rec","SF_rec", "MR_rec", "MF_rec","IAsurv", "MRsurv"                                         ,"SRsurv", "Seedlingsurv" 
+                                         ))
+
+Elas_plot.A <-ggplot(data=sensvec_Arapaho, aes(x=Stage, y=Rel.elast,fill=Stage)) +
+  geom_bar(stat="identity", width=0.5) +
+  scale_x_discrete(labels=c(expression(italic(IA)['IA']), expression(italic(IA)['MR']),
+              expression(italic(IA)['SF']), expression(italic(IA)['SR']),
+              expression(italic(MR)['IA']), expression(italic(MR)['MR']),
+              expression(italic(MR)['MF']), expression(italic(MR)['SF']), 
+              expression(italic(MR)['SR']), expression(italic(SR)['IA']),
+              expression(italic(SR)['MR']), expression(italic(SR)['MF']),
+              expression(italic(SR)['SF']), expression(italic(SR)['SR']), 
+              expression(italic(Seedling)['SR']), expression(italic(Seedling)['rec']), 
+              expression(italic(SR)['rec']),expression(italic(SF)['rec']), 
+              expression(italic(MR)['rec']),expression(italic(MF)['rec']), 
+              expression(italic(delta)['IA']), expression(italic(delta)['MR']),
+              expression(italic(delta)['SR']), expression(italic(delta)['Seedling'])
+)
+)  +
+  theme_bw() +
+  theme(legend.position="none") +
+  labs(title='Arapaho', x='Demographic Parameter', y='Elasticity') +
+  theme(axis.text=element_text(size=12),axis.title=element_text(size=14)) +
+  coord_flip()
+
+sum(sensvec_Arapaho$Rel.elast)
+
+
+```
+
+```{r}
+###################################################################################################
+spei.data <- read.csv("Lag.spei_data.csv") # load in spei weather data
+Arapaho.spei <- spei.data %>% filter(Site == "Arapaho") # we need only Niobrara data
+Arapaho.spei$X <- NULL # not needed
+
+
+## calculate the mean spei for the last 18 months to represent the mean annual spei. This approach is chosen because the effect of spei on lambda was found to have equal time-lag effect.
+Arapaho.spei <- Arapaho.spei %>%
+rowwise() %>% 
+  mutate(mean.spei = mean(spei.00:spei.11)) 
+
+######### Select years of wetter-than-normal conditions
+Arapaho_wet.yrs <- Arapaho.spei %>% filter(mean.spei >0)
+Arapaho_dry.yrs <- Arapaho.spei %>% filter(mean.spei <0)
+
+unique(Arapaho_wet.yrs$Year) ## extract wet years
+unique(Arapaho_dry.yrs$Year) ## extract dry years
+
+
+###########################################################################################
+
+VR_Arapahoe <- data.frame(VR_Arapahoe)
+
+tmax=dim(VR_Arapahoe)[1]    #estimates from 19 years
+elements=36   #No. matrix elements
+
+matrices.Arapahoe<-matrix(nrow=elements, ncol=tmax);  #A matrix to collect all matrices
+
+
+for (i in 1:tmax){
+##############################
+ mat5 <- matrix(c(
+  ##To Seedling
+  0, 
+  0, 
+ (VR_Arapahoe[i, "Seedling_rec"])*0.9, # From flowering single rosette to Seedlings 
+  0, 
+  (VR_Arapahoe[i, "Seedling_rec"])*0.1, # From flowering multiple rosette to Seedlings 
+  0,
+  
+  ##To SR
+  VR_Arapahoe[i, "Seedlingsurv"]*VR_Arapahoe[i, "SeedlingtoSR"], # From Seedlings to SR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.9), # From SR to SR
+  0, # From SF to SR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.1), # From MR to SR
+  0, # From MF to SR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSR"], # From D to SR
+  
+  ## To SF
+  0, # From Seedling to SF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.9), #From SR to SF
+  0, # From SF to SF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.1), # From MR to SF
+  0, # From MF to SF
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSF"], # From D to SF
+  
+  ## To MR
+  0, # From Seedling to MR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.9, # From SR to MR
+  0, # From SF to MR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.1, # From MR to MR
+  0, # From MF to MR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoMR"], # From D to MR
+  
+  ## To MF
+  0, # From Seedling to MF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.9, # From SR to MF
+  0, # From SF to MF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.1, # From MR to MF
+  0, # From MF to MF
+  0, # From D to MF
+  
+  ## To inactive
+  0, # From Seedling to D
+  VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoIA"], # From SR to D
+  0, # From SF to D
+  VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoIA"], # From MR to D
+  0, # From MF to D
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoIA"] # From D to D
+),  nrow=6, byrow = F) 
+
+matrices.Arapahoe[,i]<-as.vector(mat5)
+
+colnames(matrices.Arapahoe) = c("1991","1992","1993","1994","1995","1996","1997","1998","1999","2000","2001", "2002", "2003", "2004", "2005", "2006", "2007", "2008", "2009")
+
+}
+
+#######################################################################################
+Arapaho_wet.matrix <- matrices.Arapahoe[, c("1992", "1993", "1994", "1997", "2004", "2007", "2008", "2009")] ## Select population matrices that fall in wet years
+
+Arapaho_dry.matrix <- matrices.Arapahoe[, c("1991","1995", "1996", "1998", "1999", "2000", "2001", "2002", "2003", "2005", "2006")] ## Select population matrices that fall in dry years
+
+
+##################################################################
+
+SimTime=50 ## how many year in the future to project model
+p1=0.9 # probability of a bad year occurring (more drier condtitions)
+#p2=0.7 # probability of a bad year occurring 
+p3=0.5
+#p4=0.3
+p5=0.1# probability of a bad year occurring (less drier condtions)
+N_start=50 # initial number of indiviudals in each stage (arbitrary choice)
+
+
+SSD.A1 <- eigs(Amn_Arapaho1)$ss
+Ini.pop = SSD.A1*N_start
+#mean.Ini.pop = c(Sd=mean(Ini.pop$Sd), SR=mean(Ini.pop$SR), SF=mean(Ini.pop$SF), MR=mean(Ini.pop$MR), MF=mean(Ini.pop$MF), IA=mean(Ini.pop$IA))
+##
+```
+
+```{r}
+set.seed(54630)
+############################### Set P at 0.9#############################
+Result=data.frame(Time=1:SimTime, 
+                  Sd=c(Ini.pop[1], rep(0,SimTime-1)),
+                  SR=c(Ini.pop[2], rep(0,SimTime-1)),
+                  SF=c(Ini.pop[3], rep(0,SimTime-1)),
+                  MR=c(Ini.pop[4], rep(0,SimTime-1)),
+                  MF=c(Ini.pop[5], rep(0,SimTime-1)),
+                  IA=c(Ini.pop[6], rep(0,SimTime-1)))
+                 
+Sim.Mat <- matrix(NA, nrow = 50, ncol = 1000)
+Sim.mean.Pop <- matrix(NA, nrow = 50, ncol = 3)
+colnames(Sim.mean.Pop) <- c("Median", "Lower", "Upper")
+
+for(i in 1:1000){
+for (t in 2:SimTime){
+  if(runif(n=1,min=0,max=1) < 0.9) {
+    dum=project(matrix(Arapaho_dry.matrix[, sample(1:ncol(Arapaho_dry.matrix), 1)], nrow=6), 
+               c(Result$Sd[t-1], Result$SR[t-1], Result$SF[t-1], 
+                 Result$MR[t-1], Result$MF[t-1], Result$IA[t-1]), time = 1)
+  } else {dum=project(matrix(Arapaho_wet.matrix[, sample(1:ncol(Arapaho_wet.matrix), 1)], nrow = 6), 
+               c(Result$Sd[t-1], Result$SR[t-1], Result$SF[t-1], 
+                 Result$MR[t-1], Result$MF[t-1], Result$IA[t-1]), time = 1)}
+  
+   Result$Sd[t]=vec(dum)[2,1]
+   Result$SR[t]=vec(dum)[2,2]
+   Result$SF[t]=vec(dum)[2,3]
+   Result$MR[t]=vec(dum)[2,4]
+   Result$MF[t]=vec(dum)[2,5]
+   Result$IA[t]=vec(dum)[2,6]
+   
+   Pop.est=rowSums(Result[, 2:7])
+}
+Sim.Mat[, i] <- Pop.est
+
+}
+
+for (t in 1:SimTime){
+  Sim.mean.Pop[t, 1] <- Sim.Mat[t, ] %>% median()
+  Sim.mean.Pop[t, 2] <- quantile(Sim.Mat[t, ], probs=c(.05,.95), type = 8)[1] 
+  Sim.mean.Pop[t, 3] <- quantile(Sim.Mat[t, ], probs=c(.05,.95), type = 8)[2] 
+}
+
+Sim.mean.Pop1 <- data.frame(Sim.mean.Pop)
+
+Sim.mean.Pop1$Time <- 1:50
+
+ggplot(Sim.mean.Pop1, mapping = aes(x=Time, y=Median)) + 
+  geom_ribbon(aes(ymin=Lower, ymax=Upper),
+              alpha=0.5) +
+    geom_line()
+
+
+
+############################### Set P at 0.1#############################
+Result.p3=data.frame(Time=1:SimTime, 
+                  Sd=c(Ini.pop[1], rep(0,SimTime-1)),
+                  SR=c(Ini.pop[2], rep(0,SimTime-1)),
+                  SF=c(Ini.pop[3], rep(0,SimTime-1)),
+                  MR=c(Ini.pop[4], rep(0,SimTime-1)),
+                  MF=c(Ini.pop[5], rep(0,SimTime-1)),
+                  IA=c(Ini.pop[6], rep(0,SimTime-1)))
+                 
+
+Sim.Mat_p3 <- matrix(NA, nrow = 50, ncol = 1000)
+Sim.mean.Pop_p3 <- matrix(NA, nrow = 50, ncol = 3)
+colnames(Sim.mean.Pop_p3) <- c("Median", "Lower", "Upper")
+
+for(i in 1:1000){
+for (t in 2:SimTime){
+  if(runif(n=1,min=0,max=1) < 0.1) {
+    dum=project(matrix(Arapaho_dry.matrix[, sample(1:ncol(Arapaho_dry.matrix), 1)], nrow=6), 
+               c(Result.p3$Sd[t-1], Result.p3$SR[t-1], Result.p3$SF[t-1], 
+                 Result.p3$MR[t-1], Result.p3$MF[t-1], Result.p3$IA[t-1]), time = 1)
+  } else {dum=project(matrix(Arapaho_wet.matrix[, sample(1:ncol(Arapaho_wet.matrix), 1)], nrow = 6), 
+               c(Result.p3$Sd[t-1], Result.p3$SR[t-1], Result.p3$SF[t-1], 
+                 Result.p3$MR[t-1], Result.p3$MF[t-1], Result.p3$IA[t-1]), time = 1)}
+  
+   Result.p3$Sd[t]=vec(dum)[2,1]
+   Result.p3$SR[t]=vec(dum)[2,2]
+   Result.p3$SF[t]=vec(dum)[2,3]
+   Result.p3$MR[t]=vec(dum)[2,4]
+   Result.p3$MF[t]=vec(dum)[2,5]
+   Result.p3$IA[t]=vec(dum)[2,6]
+   
+   Pop.est_p3=rowSums(Result.p3[, 2:7])
+}
+Sim.Mat_p3[, i] <- Pop.est_p3
+
+}
+
+for (t in 1:SimTime){
+  Sim.mean.Pop_p3[t, 1] <- Sim.Mat_p3[t, ] %>% median()
+  Sim.mean.Pop_p3[t, 2] <- quantile(Sim.Mat_p3[t, ], probs=c(.05,.95), type = 8)[1]
+  Sim.mean.Pop_p3[t, 3] <- quantile(Sim.Mat_p3[t, ], probs=c(.05,.95), type = 8)[2]
+}
+
+Sim.mean.Pop1_p3 <- data.frame(Sim.mean.Pop_p3)
+
+Sim.mean.Pop1_p3$Time <- 1:50
+
+ggplot(Sim.mean.Pop1_p3, mapping = aes(x=Time, y=Median)) + 
+  geom_ribbon(aes(ymin=Lower, ymax=Upper),
+              alpha=0.5) +
+    geom_line()
+
+
+############################### Sample from combined Pool#############################
+Result.p5=data.frame(Time=1:SimTime, 
+                  Sd=c(Ini.pop[1], rep(0,SimTime-1)),
+                  SR=c(Ini.pop[2], rep(0,SimTime-1)),
+                  SF=c(Ini.pop[3], rep(0,SimTime-1)),
+                  MR=c(Ini.pop[4], rep(0,SimTime-1)),
+                  MF=c(Ini.pop[5], rep(0,SimTime-1)),
+                  IA=c(Ini.pop[6], rep(0,SimTime-1)))
+                 
+Sim.Mat_p5 <- matrix(NA, nrow = 50, ncol = 1000)
+Sim.mean.Pop_p5 <- matrix(NA, nrow = 50, ncol = 3)
+colnames(Sim.mean.Pop_p5) <- c("Median", "Lower", "Upper")
+
+for(i in 1:1000){
+for (t in 2:SimTime){
+  
+    dum.5=project(matrix(matrices.Arapahoe[, sample(1:ncol(matrices.Arapahoe), 1)], nrow=6), 
+               c(Result.p5$Sd[t-1], Result.p5$SR[t-1], Result.p5$SF[t-1], 
+                 Result.p5$MR[t-1], Result.p5$MF[t-1], Result.p5$IA[t-1]), time = 1)
+  
+   Result.p5$Sd[t]=vec(dum.5)[2,1]
+   Result.p5$SR[t]=vec(dum.5)[2,2]
+   Result.p5$SF[t]=vec(dum.5)[2,3]
+   Result.p5$MR[t]=vec(dum.5)[2,4]
+   Result.p5$MF[t]=vec(dum.5)[2,5]
+   Result.p5$IA[t]=vec(dum.5)[2,6]
+   
+   Pop.est_p5=rowSums(Result.p5[, 2:7])
+}
+Sim.Mat_p5[, i] <- Pop.est_p5
+
+}
+
+for (t in 1:SimTime){
+  Sim.mean.Pop_p5[t, 1] <- Sim.Mat_p5[t, ] %>% median()
+  Sim.mean.Pop_p5[t, 2] <- quantile(Sim.Mat_p5[t, ], probs=c(.05,.95), type = 8)[1]
+  Sim.mean.Pop_p5[t, 3] <- quantile(Sim.Mat_p5[t, ], probs=c(.05,.95), type = 8)[2]
+}
+
+Sim.mean.Pop1_p5 <- data.frame(Sim.mean.Pop_p5)
+
+Sim.mean.Pop1_p5$Time <- 1:50
+
+ggplot(Sim.mean.Pop1_p5, mapping = aes(x=Time, y=Median)) + 
+  geom_ribbon(aes(ymin=Lower, ymax=Upper),
+              alpha=0.5) +
+    geom_line()
+##############################################################################
+Sim.mean.Pop1_p5$Level <- "No Change"
+Sim.mean.Pop1_p3$Level <- "Low"
+Sim.mean.Pop1$Level <- "High"
+
+Pred.Arapaho <- rbind(Sim.mean.Pop1_p5, Sim.mean.Pop1_p3, Sim.mean.Pop1)
+
+Pred.Arapaho$Levels <- factor(Pred.Arapaho$Level, levels = c("Low", "No Change", "High"))
+
+Pred.Arapaho
+
+
+P.A <- ggplot(Pred.Arapaho, mapping = aes(x=Time, y=log(Median), fill = Levels, col = Levels)) + 
+  geom_ribbon(aes(ymin=log(Lower), ymax=log(Upper)), linetype = 2,
+              alpha=0.5) +
+    geom_line() + theme_bw() + ylab("log(Predicted population)") + theme(legend.position = "top") + guides(fill=guide_legend("Drought Frequency"), col=guide_legend("Drought Frequency")) +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) + ggtitle("Arapaho") + scale_color_manual(values=c("#009E73",'#B0E647', '#E74739') )+ scale_fill_manual(values=c("#009E73",'#B0E647', '#E74739')) + xlab("Year")
+
+
+Sim.Mat_p5_50 <- data.frame(Sim.Mat_p5) 
+Sim.Mat_p5_50 <- Sim.Mat_p5_50[50, ]
+Sim.Mat_p5_50 <- Sim.Mat_p5_50 %>% pivot_longer(1:1000, values_to = "sim", names_to = "sim-name")
+Sim.Mat_p5_50$Level <- "No Change"
+
+Sim.Mat_p3_50 <- data.frame(Sim.Mat_p3)
+Sim.Mat_p3_50 <- Sim.Mat_p3_50[50, ]
+Sim.Mat_p3_50 <- Sim.Mat_p3_50 %>% pivot_longer(1:1000, values_to = "sim", names_to = "sim-name")
+Sim.Mat_p3_50$Level <- "Low"
+
+Sim.Mat_50 <- data.frame(Sim.Mat)
+Sim.Mat_50 <- Sim.Mat_50[50, ]
+Sim.Mat_50 <- Sim.Mat_50 %>% pivot_longer(1:1000, values_to = "sim", names_to = "sim-name")
+Sim.Mat_50$Level <- "High"
+
+Sim.Mat_his <- rbind(Sim.Mat_p3_50, Sim.Mat_p5_50, Sim.Mat_50)
+
+Sim.Mat_his$log_sim <- log(Sim.Mat_his$sim)
+
+Sim.Mat_his$Levels <- factor(Sim.Mat_his$Level, levels = c("Low", "No Change", "High"))
+
+Hist.A <- Sim.Mat_his %>%
+  ggplot(aes(x=log_sim, fill=Levels, color=Levels)) +
+    geom_histogram(alpha=0.6, position = 'identity') +
+    scale_color_manual(values=c("#009E73",'#B0E647', '#E74739')) + 
+  scale_fill_manual(values=c("#009E73",'#B0E647', '#E74739')) + theme_bw() + geom_vline(xintercept = log(50), linetype = 2) + theme(legend.position = "top") + xlab("log(Population size) after 50 years") + ylab("Frequency") + guides(fill=guide_legend("Drought Frequency"), col=guide_legend("Drought Frequency")) +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) + ggtitle("Arapaho")
+
+
+Sim.Mat_his %>% group_by(Level) %>% summarise(sim = median(sim))
+
+
+
+#High	4.881002e+02			
+#Low	4.878420e+08			
+#No Change	1.257080e+05	
+
+
+```
+
+```{r}
+###################################################################
+
+
+column1<-matrices.Arapahoe[,1]  #extract a column
+lambda_1991<-matrix((column1), nrow=6) #reshape to a matrix
+lambda(lambda_1991)
+colSums(lambda_1991)
+eigs(lambda_1991)
+
+#####################
+column2<-matrices.Arapahoe[,2]  #extract a column
+lambda_1992<-matrix((column2), nrow=6) #reshape to a matrix
+lambda(lambda_1992)
+colSums(lambda_1992)
+eigs(lambda_1992)
+
+##################
+column3<-matrices.Arapahoe[,3]  #extract a column
+lambda_1993<-matrix((column3), nrow=6) #reshape to a matrix
+lambda(lambda_1993)
+colSums(lambda_1993)
+eigs(lambda_1993)
+
+##################
+column4<-matrices.Arapahoe[,4]  #extract a column
+lambda_1994<-matrix((column4), nrow=6) #reshape to a matrix
+lambda(lambda_1994)
+colSums(lambda_1994)
+eigs(lambda_1994)
+
+##################
+column5<-matrices.Arapahoe[,5]  #extract a column
+lambda_1995<-matrix((column5), nrow=6) #reshape to a matrix
+lambda(lambda_1995)
+colSums(lambda_1995)
+eigs(lambda_1995)
+
+##################
+column6<-matrices.Arapahoe[,6]  #extract a column
+lambda_1996<-matrix((column6), nrow=6) #reshape to a matrix
+lambda(lambda_1996)
+colSums(lambda_1996)
+eigs(lambda_1996)
+
+##################
+column7<-matrices.Arapahoe[,7]  #extract a column
+lambda_1997<-matrix((column7), nrow=6) #reshape to a matrix
+lambda(lambda_1997)
+colSums(lambda_1997)
+eigs(lambda_1997)
+
+##################
+column8<-matrices.Arapahoe[,8]  #extract a column
+lambda_1998<-matrix((column8), nrow=6) #reshape to a matrix
+lambda(lambda_1998)
+colSums(lambda_1998)
+eigs(lambda_1998)
+
+##################
+column9<-matrices.Arapahoe[,9]  #extract a column
+lambda_1999<-matrix((column9), nrow=6) #reshape to a matrix
+lambda(lambda_1999)
+colSums(lambda_1999)
+eigs(lambda_1999)
+
+##################
+column10<-matrices.Arapahoe[,10]  #extract a column
+lambda_2000<-matrix((column10), nrow=6) #reshape to a matrix
+lambda(lambda_2000)
+colSums(lambda_2000)
+eigs(lambda_2000)
+
+##################
+column11<-matrices.Arapahoe[,11]  #extract a column
+lambda_2001<-matrix((column11), nrow=6) #reshape to a matrix
+lambda(lambda_2001)
+colSums(lambda_2001)
+eigs(lambda_2001)
+
+##################
+column12<-matrices.Arapahoe[,12]  #extract a column
+lambda_2002<-matrix((column12), nrow=6) #reshape to a matrix
+lambda(lambda_2002)
+colSums(lambda_2002)
+eigs(lambda_2002)
+
+##################
+column13<-matrices.Arapahoe[,13]  #extract a column
+lambda_2003<-matrix((column13), nrow=6) #reshape to a matrix
+lambda(lambda_2003)
+colSums(lambda_2003)
+eigs(lambda_2003)
+
+##################
+column14<-matrices.Arapahoe[,14]  #extract a column
+lambda_2004<-matrix((column14), nrow=6) #reshape to a matrix
+lambda(lambda_2004)
+colSums(lambda_2004)
+eigs(lambda_2004)
+
+##################
+column15<-matrices.Arapahoe[,15]  #extract a column
+lambda_2005<-matrix((column15), nrow=6) #reshape to a matrix
+lambda(lambda_2005)
+colSums(lambda_2005)
+eigs(lambda_2005)
+
+##################
+column16<-matrices.Arapahoe[,16]  #extract a column
+lambda_2006<-matrix((column16), nrow=6) #reshape to a matrix
+lambda(lambda_2006)
+colSums(lambda_2006)
+eigs(lambda_2006)
+
+##################
+column17<-matrices.Arapahoe[,17]  #extract a column
+lambda_2007<-matrix((column17), nrow=6) #reshape to a matrix
+lambda(lambda_2007)
+colSums(lambda_2007)
+eigs(lambda_2007)
+
+##################
+column18<-matrices.Arapahoe[,18]  #extract a column
+lambda_2008<-matrix((column18), nrow=6) #reshape to a matrix
+lambda(lambda_2008)
+colSums(lambda_2008)
+eigs(lambda_2008)
+
+##################
+column19<-matrices.Arapahoe[,19]  #extract a column
+lambda_2009<-matrix((column19), nrow=6) #reshape to a matrix
+lambda(lambda_2009)
+colSums(lambda_2009)
+eigs(lambda_2009)
+
+
+Lambda_Arapahoe <- c(lambda(lambda_1991), lambda(lambda_1992), lambda(lambda_1993), lambda(lambda_1994), lambda(lambda_1995), lambda(lambda_1996), lambda(lambda_1997), lambda(lambda_1998), lambda(lambda_1999), lambda(lambda_2000), lambda(lambda_2001), lambda(lambda_2002), lambda(lambda_2003), lambda(lambda_2004), lambda(lambda_2005), lambda(lambda_2006), lambda(lambda_2007), lambda(lambda_2008), lambda(lambda_2009))
+
+Year <- as_tibble(1991:2009)
+
+Lambda_Arapahoe1 <- c(lambda(lambda_1991), lambda(lambda_1993), lambda(lambda_1994), lambda(lambda_1995), lambda(lambda_1996), lambda(lambda_1997), lambda(lambda_1998), lambda(lambda_1999), lambda(lambda_2000), lambda(lambda_2001), lambda(lambda_2002), lambda(lambda_2003), lambda(lambda_2004), lambda(lambda_2005), lambda(lambda_2006), lambda(lambda_2007), lambda(lambda_2008), lambda(lambda_2009))
+
+#Year1 <- as_tibble(1991, 1993:2009)
+
+################################################################
+data.frame(Lambda_Arapahoe <- cbind(Year, Lambda_Arapahoe))
+
+Lambda.wet <- Lambda_Arapahoe %>% filter(value %in% c("1992", "1993", "1994", "1997", "2004", "2007", "2008", "2009"))
+
+Lambda.dry <-Lambda_Arapahoe %>% filter(value %in% c("1991","1995", "1996", "1998", "1999", "2000", "2001", "2002", "2003", "2005", "2006"))
+
+Lambda.wet$Condition <- "Wet"
+Lambda.dry$Condition <- "Dry"
+
+Lambda.A <- rbind(Lambda.wet, Lambda.dry)
+
+summary(lm(Lambda.A$Lambda_Arapahoe~Lambda.A$Condition))
+
+P2 <- ggplot(Lambda.A, aes(x=Condition, y=Lambda_Arapahoe)) + geom_violin(width=0.5, aes(fill= Condition), alpha=0.4, show.legend = FALSE) + geom_boxplot(width=0.1, aes(fill= Condition), alpha=0.4, show.legend = FALSE) + theme_bw() + geom_point(col = "black") + ylab(expression(paste("Asymptotic (", lambda[t],")"))) +
+  scale_fill_viridis_d() + xlab("Climate")  + annotate(geom="text", x=1.5, y=2.5, size=5, label="p=0.006") + ggtitle("Arapaho") +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) 
+
+c((lambda_1991), (lambda_1992), (lambda_1993), (lambda_1994), (lambda_1995), (lambda_1996), (lambda_1997), (lambda_1998), (lambda_1999), (lambda_2000), (lambda_2001), (lambda_2002), (lambda_2003), (lambda_2004), (lambda_2005), (lambda_2006), (lambda_2007), (lambda_2008), (lambda_2009))
+
+
+library(Kendall) 
+library(zyp)
+
+MannKendall(Lambda_Arapahoe$Lambda_Arapahoe)
+
+MannKendall(Lambda_Arapahoe1)
+```
+
+# Niobrara
+
+```{r}
+
+VR_Niobrara <- read_csv("VR_Niobrara.csv")
+
+VR_Niobrara$...1 <- NULL
+
+```
+
+```{r}
+
+##################################################################
+
+set.seed(54630)
+
+#####################################################################
+
+VR_Niobrara <- data.frame(VR_Niobrara)
+
+
+tmax=dim(VR_Niobrara)[1]    #estimates from 19 years
+elements=36   #No. matrix elements
+
+matrices.Niobrara<-matrix(nrow=elements, ncol=tmax);  #A matrix to collect all matrices
+
+
+for (i in 1:tmax){
+##############################
+ mat <- matrix(c(
+  ##To Seedling
+  0, 
+  0, 
+  (VR_Niobrara[i, "Seedling_rec"])*0.9, # From flowering single rosette to Seedlings 
+  0, 
+  (VR_Niobrara[i, "Seedling_rec"])*0.1, # From flowering multiple rosette to Seedlings 
+  0,
+  
+  ##To SR
+  VR_Niobrara[i, "Seedlingsurv"]*VR_Niobrara[i, "SeedlingtoSR"], # From Seedlings to SR
+  (VR_Niobrara[i, "SRsurv"]*VR_Niobrara[i, "SRtoSR"]) + (VR_Niobrara[i, "SR_rec"])*0.9, # From SR to SR
+  0, # From SF to SR
+  (VR_Niobrara[i, "MRsurv"]*VR_Niobrara[i, "MRtoSR"]) + (VR_Niobrara[i, "SR_rec"])*0.1, # From MR to SR
+  0, # From MF to SR
+  VR_Niobrara[i, "IAsurv"]*VR_Niobrara[i, "IAtoSR"], # From D to SR
+  
+  ## To SF
+  0, # From Seedling to SF
+  (VR_Niobrara[i, "SRsurv"]*VR_Niobrara[i, "SRtoSF"])+ (VR_Niobrara[i, "SF_rec"])*0.9, #From SR to SF
+  0, # From SF to SF
+  (VR_Niobrara[i, "MRsurv"]*VR_Niobrara[i, "MRtoSF"])+ (VR_Niobrara[i, "SF_rec"])*0.1, # From MR to SF
+  0, # From MF to SF
+  VR_Niobrara[i, "IAsurv"]*VR_Niobrara[i, "IAtoSF"], # From D to SF
+  
+  ## To MR
+  0, # From Seedling to MR
+  (VR_Niobrara[i, "SRsurv"]*VR_Niobrara[i, "SRtoMR"])+ (VR_Niobrara[i, "MR_rec"])*0.9, # From SR to MR
+  0, # From SF to MR
+  (VR_Niobrara[i, "MRsurv"]*VR_Niobrara[i, "MRtoMR"])+ (VR_Niobrara[i, "MR_rec"])*0.1, # From MR to MR
+  0, # From MF to MR
+  VR_Niobrara[i, "IAsurv"]*VR_Niobrara[i, "IAtoMR"], # From D to MR
+  
+  ## To MF
+  0, # From Seedling to MF
+  (VR_Niobrara[i, "SRsurv"]*VR_Niobrara[i, "SRtoMF"])+ (VR_Niobrara[i, "MF_rec"])*0.9, # From SR to MF
+  0, # From SF to MF
+  (VR_Niobrara[i, "MRsurv"]*VR_Niobrara[i, "MRtoMF"])+ (VR_Niobrara[i, "MF_rec"])*0.1, # From MR to MF
+  0, # From MF to MF
+  0, # From D to MF
+  
+  ## To inactive
+  0, # From Seedling to D
+  VR_Niobrara[i, "SRsurv"]*VR_Niobrara[i, "SRtoIA"], # From SR to D
+  0, # From SF to D
+  VR_Niobrara[i, "MRsurv"]*VR_Niobrara[i, "MRtoIA"], # From MR to D
+  0, # From MF to D
+  VR_Niobrara[i, "IAsurv"]*VR_Niobrara[i, "IAtoIA"] # From D to D
+),  nrow=6, byrow = F) 
+
+matrices.Niobrara[,i]<-as.vector(mat)
+
+colnames(matrices.Niobrara) = c("1991","1992","1993","1994","1995","1996","1997","1998","1999","2000","2001", "2002", "2003", "2004", "2005", "2006", "2007", "2008", "2009")
+
+}
+
+##########################################################################################
+
+## calculate the mean spei for the last 18 months to represent the mean annual spei. This approach is chosen because the effect of spei on lambda was found to have equal time-lag effect.
+
+spei.data <- read.csv("Lag.spei_data.csv") # load in spei weather data
+Niobrara.spei <- spei.data %>% filter(Site == "Niobrara") # we need only Niobrara data
+Niobrara.spei$X <- NULL # not needed
+
+
+Niobrara.spei <- Niobrara.spei %>%
+rowwise() %>% 
+  mutate(mean.spei = mean(spei.00:spei.11)) 
+
+######### Select years of wetter-than-normal conditions
+Niobrara_wet.yrs <- Niobrara.spei %>% filter(mean.spei >0)
+Niobrara_dry.yrs <- Niobrara.spei %>% filter(mean.spei <0)
+
+unique(Niobrara_wet.yrs$Year) ## extract wet years
+unique(Niobrara_dry.yrs$Year) ## extract dry years
+
+######################################################################
+
+Niobrara.spei <- spei.data %>% filter(Site == "Niobrara") # we need only Niobrara data
+Niobrara.spei$X <- NULL # not needed
+
+
+## calculate the mean spei for the last 18 months to represent the mean annual spei. This approach is chosen because the effect of spei on lambda was found to have equal time-lag effect.
+Niobrara.spei <- Niobrara.spei %>%
+rowwise() %>% 
+  mutate(mean.spei = mean(spei.00:spei.11)) 
+
+######### Select years of wetter-than-normal conditions
+Niobrara_wet.yrs <- Niobrara.spei %>% filter(mean.spei >0)
+Niobrara_dry.yrs <- Niobrara.spei %>% filter(mean.spei <0)
+
+unique(Niobrara_wet.yrs$Year) ## extract wet years
+unique(Niobrara_dry.yrs$Year) ## extract dry years
+
+
+Niobrara_wet.matrix <- matrices.Niobrara[, c("1992", "1993", "1994", "1997","1998", "2000", "2008", "2009")] ## Select population matrices that fall in wet years
+
+Niobrara_dry.matrix <- matrices.Niobrara[, c("1991", "1995", "1996", "1999", "2001", "2002", "2003", "2004", "2005", "2006", "2007")] ## Select population matrices that fall in dry years
+
+
+```
+
+```{r}
+
+SSD1 <- eigs(Amn_Niobrara1)$ss
+
+#starting population close to stable stage distribution
+Ini.pop = SSD1*N_start
+
+############################### Set P at 0.9#############################
+Result.H=data.frame(Time=1:SimTime, 
+                  Sd=c(Ini.pop[1], rep(0,SimTime-1)),
+                  SR=c(Ini.pop[2], rep(0,SimTime-1)),
+                  SF=c(Ini.pop[3], rep(0,SimTime-1)),
+                  MR=c(Ini.pop[4], rep(0,SimTime-1)),
+                  MF=c(Ini.pop[5], rep(0,SimTime-1)),
+                  IA=c(Ini.pop[6], rep(0,SimTime-1)))
+                 
+Sim.Mat.H <- matrix(NA, nrow = 50, ncol = 1000)
+Sim.mean.Pop.H <- matrix(NA, nrow = 50, ncol = 3)
+colnames(Sim.mean.Pop.H) <- c("Median", "Lower", "Upper")
+
+for(i in 1:1000){
+for (t in 2:SimTime){
+  if(runif(n=1,min=0,max=1) < 0.9) {
+    dum=project(matrix(Niobrara_dry.matrix[, sample(1:ncol(Niobrara_dry.matrix), 1)], nrow=6), 
+               c(Result.H$Sd[t-1], Result.H$SR[t-1], Result.H$SF[t-1], 
+                 Result.H$MR[t-1], Result.H$MF[t-1], Result.H$IA[t-1]), time = 1)
+  } else {dum=project(matrix(Niobrara_wet.matrix[, sample(1:ncol(Niobrara_wet.matrix), 1)], nrow = 6), 
+               c(Result.H$Sd[t-1], Result.H$SR[t-1], Result.H$SF[t-1], 
+                 Result.H$MR[t-1], Result.H$MF[t-1], Result.H$IA[t-1]), time = 1)}
+  
+   Result.H$Sd[t]=vec(dum)[2,1]
+   Result.H$SR[t]=vec(dum)[2,2]
+   Result.H$SF[t]=vec(dum)[2,3]
+   Result.H$MR[t]=vec(dum)[2,4]
+   Result.H$MF[t]=vec(dum)[2,5]
+   Result.H$IA[t]=vec(dum)[2,6]
+   
+   Pop.est.H=rowSums(Result.H[, 2:7])
+}
+Sim.Mat.H[, i] <- Pop.est.H
+
+}
+
+for (t in 1:SimTime){
+  Sim.mean.Pop.H[t, 1] <- Sim.Mat.H[t, ] %>% median()
+  Sim.mean.Pop.H[t, 2] <- quantile(Sim.Mat.H[t, ], probs=c(.05,.95), type = 8)[1] 
+  Sim.mean.Pop.H[t, 3] <- quantile(Sim.Mat.H[t, ], probs=c(.05,.95), type = 8)[2] 
+}
+
+Sim.mean.Pop.H <- data.frame(Sim.mean.Pop.H)
+
+Sim.mean.Pop.H$Time <- 1:50
+
+ggplot(Sim.mean.Pop.H, mapping = aes(x=Time, y=Median)) + 
+  geom_ribbon(aes(ymin=Lower, ymax=Upper),
+              alpha=0.5) +
+    geom_line()
+
+
+
+############################### Set P at 0.1#############################
+Result.L=data.frame(Time=1:SimTime, 
+                  Sd=c(Ini.pop[1], rep(0,SimTime-1)),
+                  SR=c(Ini.pop[2], rep(0,SimTime-1)),
+                  SF=c(Ini.pop[3], rep(0,SimTime-1)),
+                  MR=c(Ini.pop[4], rep(0,SimTime-1)),
+                  MF=c(Ini.pop[5], rep(0,SimTime-1)),
+                  IA=c(Ini.pop[6], rep(0,SimTime-1)))
+                 
+
+Sim.Mat_L <- matrix(NA, nrow = 50, ncol = 1000)
+Sim.mean.Pop_L <- matrix(NA, nrow = 50, ncol = 3)
+colnames(Sim.mean.Pop_L) <- c("Median", "Lower", "Upper")
+
+for(i in 1:1000){
+for (t in 2:SimTime){
+  if(runif(n=1,min=0,max=1) < 0.1) {
+    dum=project(matrix(Niobrara_dry.matrix[, sample(1:ncol(Niobrara_dry.matrix), 1)], nrow=6), 
+               c(Result.L$Sd[t-1], Result.L$SR[t-1], Result.L$SF[t-1], 
+                 Result.L$MR[t-1], Result.L$MF[t-1], Result.L$IA[t-1]), time = 1)
+  } else {dum=project(matrix(Niobrara_wet.matrix[, sample(1:ncol(Niobrara_wet.matrix), 1)], nrow = 6), 
+               c(Result.L$Sd[t-1], Result.L$SR[t-1], Result.L$SF[t-1], 
+                 Result.L$MR[t-1], Result.L$MF[t-1], Result.L$IA[t-1]), time = 1)}
+  
+   Result.L$Sd[t]=vec(dum)[2,1]
+   Result.L$SR[t]=vec(dum)[2,2]
+   Result.L$SF[t]=vec(dum)[2,3]
+   Result.L$MR[t]=vec(dum)[2,4]
+   Result.L$MF[t]=vec(dum)[2,5]
+   Result.L$IA[t]=vec(dum)[2,6]
+   
+   Pop.est_L=rowSums(Result.L[, 2:7])
+}
+Sim.Mat_L[, i] <- Pop.est_L
+
+}
+
+for (t in 1:SimTime){
+  Sim.mean.Pop_L[t, 1] <- Sim.Mat_L[t, ] %>% median()
+  Sim.mean.Pop_L[t, 2] <- quantile(Sim.Mat_L[t, ], probs=c(.05,.95), type = 8)[1]
+  Sim.mean.Pop_L[t, 3] <- quantile(Sim.Mat_L[t, ], probs=c(.05,.95), type = 8)[2]
+}
+
+Sim.mean.Pop1_L <- data.frame(Sim.mean.Pop_L)
+
+Sim.mean.Pop1_L$Time <- 1:50
+
+ggplot(Sim.mean.Pop1_L, mapping = aes(x=Time, y=Median)) + 
+  geom_ribbon(aes(ymin=Lower, ymax=Upper),
+              alpha=0.5) +
+    geom_line()
+
+
+############################### Combined pool of wet and dry years#############################
+Result.M=data.frame(Time=1:SimTime, 
+                  Sd=c(Ini.pop[1], rep(0,SimTime-1)),
+                  SR=c(Ini.pop[2], rep(0,SimTime-1)),
+                  SF=c(Ini.pop[3], rep(0,SimTime-1)),
+                  MR=c(Ini.pop[4], rep(0,SimTime-1)),
+                  MF=c(Ini.pop[5], rep(0,SimTime-1)),
+                  IA=c(Ini.pop[6], rep(0,SimTime-1)))
+                 
+Sim.Mat_M <- matrix(NA, nrow = 50, ncol = 1000)
+Sim.mean.Pop_M <- matrix(NA, nrow = 50, ncol = 3)
+colnames(Sim.mean.Pop_M) <- c("Median", "Lower", "Upper")
+
+for(i in 1:1000){
+for (t in 2:SimTime){
+    dum=project(matrix(matrices.Niobrara[, sample(1:ncol(matrices.Niobrara), 1)], nrow=6), 
+               c(Result.M$Sd[t-1], Result.M$SR[t-1], Result.M$SF[t-1], 
+                 Result.M$MR[t-1], Result.M$MF[t-1], Result.M$IA[t-1]),  time = 1)
+  
+   Result.M$Sd[t]=vec(dum)[2,1]
+   Result.M$SR[t]=vec(dum)[2,2]
+   Result.M$SF[t]=vec(dum)[2,3]
+   Result.M$MR[t]=vec(dum)[2,4]
+   Result.M$MF[t]=vec(dum)[2,5]
+   Result.M$IA[t]=vec(dum)[2,6]
+   
+   Pop.est_M=rowSums(Result.M[, 2:7])
+}
+Sim.Mat_M[, i] <- Pop.est_M
+
+}
+
+for (t in 1:SimTime){
+  Sim.mean.Pop_M[t, 1] <- Sim.Mat_M[t, ] %>% median()
+  Sim.mean.Pop_M[t, 2] <- quantile(Sim.Mat_M[t, ], probs=c(.05,.95), type = 8)[1]
+  Sim.mean.Pop_M[t, 3] <- quantile(Sim.Mat_M[t, ], probs=c(.05,.95), type = 8)[2]
+}
+
+Sim.mean.Pop1_M <- data.frame(Sim.mean.Pop_M)
+
+Sim.mean.Pop1_M$Time <- 1:50
+
+ggplot(Sim.mean.Pop1_M, mapping = aes(x=Time, y=Median)) + 
+  geom_ribbon(aes(ymin=Lower, ymax=Upper),
+              alpha=0.5) +
+    geom_line()
+##############################################################################
+Sim.mean.Pop1_L$Level <- "Low"
+Sim.mean.Pop1_M$Level <- "No Change"
+Sim.mean.Pop.H$Level <- "High"
+
+Pred.Niobrara1 <- rbind(Sim.mean.Pop1_M, Sim.mean.Pop1_L, Sim.mean.Pop.H)
+
+Pred.Niobrara1$Levels <- factor(Pred.Niobrara1$Level, levels = c("Low", "No Change", "High"))
+
+##################################################################################
+P.N1 <- ggplot(Pred.Niobrara1, mapping = aes(x=Time, y=log(Median), fill = Levels, col = Levels)) + 
+  geom_ribbon(aes(ymin=log(Lower), ymax=log(Upper)), linetype = 2,
+              alpha=0.5) +
+    geom_line() + theme_bw() + ylab("log(Predicted population)") + theme(legend.position = "top") + guides(fill=guide_legend("Drought Frequency"), col=guide_legend("Drought Frequency")) +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) + ggtitle("Niobrara") + scale_color_manual(values=c("#009E73",'#B0E647', '#E74739') )+ scale_fill_manual(values=c("#009E73",'#B0E647', '#E74739')) + xlab("Year")
+
+
+
+
+Sim.Mat_M_50 <- data.frame(Sim.Mat_M) 
+Sim.Mat_M_50 <- Sim.Mat_M_50[50, ]
+Sim.Mat_M_50 <- Sim.Mat_M_50 %>% pivot_longer(1:1000, values_to = "sim", names_to = "sim-name")
+Sim.Mat_M_50$Level <- "No Change"
+
+Sim.Mat_L_50 <- data.frame(Sim.Mat_L)
+Sim.Mat_L_50 <- Sim.Mat_L_50[50, ]
+Sim.Mat_L_50 <- Sim.Mat_L_50 %>% pivot_longer(1:1000, values_to = "sim", names_to = "sim-name")
+Sim.Mat_L_50$Level <- "Low"
+
+Sim.Mat_H_50 <- data.frame(Sim.Mat.H)
+Sim.Mat_H_50 <- Sim.Mat_H_50[50, ]
+Sim.Mat_H_50 <- Sim.Mat_H_50 %>% pivot_longer(1:1000, values_to = "sim", names_to = "sim-name")
+Sim.Mat_H_50$Level <- "High"
+
+Sim.Mat_his.N <- rbind(Sim.Mat_L_50, Sim.Mat_M_50, Sim.Mat_H_50)
+
+Sim.Mat_his.N$log_sim <- log(Sim.Mat_his.N$sim)
+
+Sim.Mat_his.N$Levels <- factor(Sim.Mat_his.N$Level, levels = c("Low", "No Change", "High"))
+
+Hist.N <- Sim.Mat_his.N %>%
+  ggplot(aes(x=log_sim, fill=Levels, color=Levels)) +
+    geom_histogram(alpha=0.6, position = 'identity') +
+    scale_color_manual(values=c("#009E73",'#B0E647', '#E74739')) + 
+  scale_fill_manual(values=c("#009E73",'#B0E647', '#E74739')) + theme_bw() + geom_vline(xintercept = log(50), linetype = 2) + theme(legend.position = "top") + xlab("log(Population size) after 50 years") + ylab("Frequency") + guides(fill=guide_legend("Drought Frequency"), col=guide_legend("Drought Frequency")) +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) + ggtitle("Niobrara")
+
+
+
+Sim.Mat_his.N %>% filter(Level == "Low" & sim < 50); (131/1000)*100
+Sim.Mat_his.N %>% filter(Level == "No Change" & sim < 50); (85/1000)*100
+Sim.Mat_his.N %>% filter(Level == "High" & sim < 50); (104/1000)*100
+
+Sim.Mat_his %>% filter(Level == "High" & sim <= 50); (68/1000)*100
+
+summary(glm(log_sim ~ Levels, data = Sim.Mat_his))
+
+summary(glm(log_sim ~ Levels, data = Sim.Mat_his.N))
+
+
+summary(Sim.Mat_his.N$sim)
+
+No_N <- Sim.Mat_his.N %>% filter(Level == "No Change") 
+No_N$Site <- "Niobrara"
+No_A <- Sim.Mat_his %>% filter(Level == "No Change") 
+No_A$Site <- "Arapaho"
+
+All.No <- rbind(No_A, No_N)
+
+summary(No_N$s)
+
+summary(glm(log_sim ~ Site, data = All.No))
+
+
+Sim.Mat_his.N %>%
+  ggplot(aes(x=sim, fill=Levels, color=Levels)) +
+    geom_histogram(bins = 1000, alpha=0.6, position = 'identity') +
+    scale_color_manual(values=c("#009E73",'#B0E647', '#E74739')) + 
+  scale_fill_manual(values=c("#009E73",'#B0E647', '#E74739')) + theme_bw() + geom_vline(xintercept = 50, linetype = 2) + theme(legend.position = "top") + xlab("log(Population size) after 50 years") + ylab("Frequency") + guides(fill=guide_legend("Drought Frequency"), col=guide_legend("Drought Frequency")) +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) + ggtitle("Niobrara")
+
+
+Sim.Mat_his.N %>% group_by(Level) %>% summarise(sim = median(sim))
+
+```
+
+```{r}
+########################################################################
+column1<-matrices.Niobrara[,1]  #extract a column
+lambda_1991<-matrix((column1), nrow=6) #reshape to a matrix
+lambda(lambda_1991)
+colSums(lambda_1991)
+eigs(lambda_1991)
+
+#####################
+column2<-matrices.Niobrara[,2]  #extract a column
+lambda_1992<-matrix((column2), nrow=6) #reshape to a matrix
+lambda(lambda_1992)
+colSums(lambda_1992)
+eigs(lambda_1992)
+
+##################
+column3<-matrices.Niobrara[,3]  #extract a column
+lambda_1993<-matrix((column3), nrow=6) #reshape to a matrix
+lambda(lambda_1993)
+colSums(lambda_1993)
+eigs(lambda_1993)
+
+##################
+column4<-matrices.Niobrara[,4]  #extract a column
+lambda_1994<-matrix((column4), nrow=6) #reshape to a matrix
+lambda(lambda_1994)
+colSums(lambda_1994)
+eigs(lambda_1994)
+
+##################
+column5<-matrices.Niobrara[,5]  #extract a column
+lambda_1995<-matrix((column5), nrow=6) #reshape to a matrix
+lambda(lambda_1995)
+colSums(lambda_1995)
+eigs(lambda_1995)
+
+##################
+column6<-matrices.Niobrara[,6]  #extract a column
+lambda_1996<-matrix((column6), nrow=6) #reshape to a matrix
+lambda(lambda_1996)
+colSums(lambda_1996)
+eigs(lambda_1996)
+
+##################
+column7<-matrices.Niobrara[,7]  #extract a column
+lambda_1997<-matrix((column7), nrow=6) #reshape to a matrix
+lambda(lambda_1997)
+colSums(lambda_1997)
+eigs(lambda_1997)
+
+##################
+column8<-matrices.Niobrara[,8]  #extract a column
+lambda_1998<-matrix((column8), nrow=6) #reshape to a matrix
+lambda(lambda_1998)
+colSums(lambda_1998)
+eigs(lambda_1998)
+
+##################
+column9<-matrices.Niobrara[,9]  #extract a column
+lambda_1999<-matrix((column9), nrow=6) #reshape to a matrix
+lambda(lambda_1999)
+colSums(lambda_1999)
+eigs(lambda_1999)
+
+##################
+column10<-matrices.Niobrara[,10]  #extract a column
+lambda_2000<-matrix((column10), nrow=6) #reshape to a matrix
+lambda(lambda_2000)
+colSums(lambda_2000)
+eigs(lambda_2000)
+
+##################
+column11<-matrices.Niobrara[,11]  #extract a column
+lambda_2001<-matrix((column11), nrow=6) #reshape to a matrix
+lambda(lambda_2001)
+colSums(lambda_2001)
+eigs(lambda_2001)
+
+##################
+column12<-matrices.Niobrara[,12]  #extract a column
+lambda_2002<-matrix((column12), nrow=6) #reshape to a matrix
+lambda(lambda_2002)
+colSums(lambda_2002)
+eigs(lambda_2002)
+
+##################
+column13<-matrices.Niobrara[,13]  #extract a column
+lambda_2003<-matrix((column13), nrow=6) #reshape to a matrix
+lambda(lambda_2003)
+colSums(lambda_2003)
+eigs(lambda_2003)
+
+##################
+column14<-matrices.Niobrara[,14]  #extract a column
+lambda_2004<-matrix((column14), nrow=6) #reshape to a matrix
+lambda(lambda_2004)
+colSums(lambda_2004)
+eigs(lambda_2004)
+
+##################
+column15<-matrices.Niobrara[,15]  #extract a column
+lambda_2005<-matrix((column15), nrow=6) #reshape to a matrix
+lambda(lambda_2005)
+colSums(lambda_2005)
+eigs(lambda_2005)
+
+##################
+column16<-matrices.Niobrara[,16]  #extract a column
+lambda_2006<-matrix((column16), nrow=6) #reshape to a matrix
+lambda(lambda_2006)
+colSums(lambda_2006)
+eigs(lambda_2006)
+
+##################
+column17<-matrices.Niobrara[,17]  #extract a column
+lambda_2007<-matrix((column17), nrow=6) #reshape to a matrix
+lambda(lambda_2007)
+colSums(lambda_2007)
+eigs(lambda_2007)
+
+##################
+column18<-matrices.Niobrara[,18]  #extract a column
+lambda_2008<-matrix((column18), nrow=6) #reshape to a matrix
+lambda(lambda_2008)
+colSums(lambda_2008)
+eigs(lambda_2008)
+
+##################
+column19<-matrices.Niobrara[,19]  #extract a column
+lambda_2009<-matrix((column19), nrow=6) #reshape to a matrix
+lambda(lambda_2009)
+colSums(lambda_2009)
+eigs(lambda_2009)
+
+
+Lambda_Niobrara <- c(lambda(lambda_1991), lambda(lambda_1992), lambda(lambda_1993), lambda(lambda_1994), lambda(lambda_1995), lambda(lambda_1996), lambda(lambda_1997), lambda(lambda_1998), lambda(lambda_1999), lambda(lambda_2000), lambda(lambda_2001), lambda(lambda_2002), lambda(lambda_2003), lambda(lambda_2004), lambda(lambda_2005), lambda(lambda_2006), lambda(lambda_2007), lambda(lambda_2008), lambda(lambda_2009))
+
+Year <- as_tibble(1991:2009)
+
+
+data.frame(Lambda_Niobrara <- cbind(Year, Lambda_Niobrara))
+
+
+
+Lambda.wet <- Lambda_Niobrara %>% filter(value %in% c("1992", "1993", "1994", "1997","1998", "2000", "2008", "2009"))
+
+
+
+Lambda.dry <- Lambda_Niobrara %>% filter(value %in% c("1991", "1995", "1996", "1999", "2001", "2002", "2003", "2004", "2005", "2006", "2007"))
+
+Lambda.wet$Condition <- "Wet"
+Lambda.dry$Condition <- "Dry"
+
+summary(Lambda.wet$Lambda_Niobrara)
+Lambda.N <- rbind(Lambda.wet, Lambda.dry)
+
+summary(lm(Lambda.N$Lambda_Niobrara~Lambda.N$Condition))
+summary(lm(Lambda.A$Lambda_Arapahoe~Lambda.A$Condition))
+
+##################################################################################
+P3 <- ggplot(Lambda.N, aes(x=Condition, y=Lambda_Niobrara)) + geom_violin(width=0.5, aes(fill= Condition), alpha=0.4, show.legend = FALSE) + geom_boxplot(width=0.1, aes(fill= Condition), alpha=0.4, show.legend = FALSE) + theme_bw() + geom_point(col = "black") + ylab(expression(paste("Asymptotic (", lambda[t],")"))) + ylim(c(0.7, 2.5)) +
+  scale_fill_viridis_d() + xlab("Climate") + annotate(geom="text", x=1.5, y=2.5, size=5, label="p=0.97") + ggtitle("Niobrara") +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15))
+
+Lambda.A %>% group_by(Condition) %>% summarise(min = min(Lambda_Arapahoe),
+                                               max = max(Lambda_Arapahoe),
+                                               median = median(Lambda_Arapahoe),
+                                               sd = sd(Lambda_Arapahoe))
+
+Lambda.N %>% group_by(Condition) %>% summarise(min = min(Lambda_Niobrara),
+                                               max = max(Lambda_Niobrara),
+                                               mean = median(Lambda_Niobrara),
+                                               sd = mean(Lambda_Niobrara))
+
+MannKendall(Lambda_Niobrara$Lambda_Niobrara)
+
+```
+
+```{r}
+library(cowplot)
+
+plot_grid(SSD.A_plot, SSD.N_plot, labels = "AUTO", ncol=2)
+
+plot_grid(Elas_plot.A, Elas_plot.N, labels = "AUTO", ncol=2)
+
+plot_grid(P2, P3,  Hist.A, Hist.N,  labels = "AUTO", ncol=2)
+
+
+Lambda_Niobrara
+
+Lambda_Arapahoe %>% 
+transform(Lambda = mean(Lambda_Arapahoe, na.rm = T),
+            Lower = quantile(Lambda_Arapahoe, 0.05, type = 8, na.rm = T),
+           Upper = quantile(Lambda_Arapahoe, 0.95, type = 8, na.rm = T),
+           #sd    =  sd(Lambda_Arapahoe),  # Standard deviation
+           n = 19,
+            SE = 0.3754178 / sqrt(19))
+
+Lambda_Niobrara %>% 
+transform(Lambda = mean(Lambda_Niobrara, na.rm = T),
+            Lower = quantile(Lambda_Niobrara, 0.05, type = 8, na.rm = T),
+           Upper = quantile(Lambda_Niobrara, 0.95, type = 8, na.rm = T),
+           #sd    =  sd(Lambda_Arapahoe),  # Standard deviation
+           n = 19,
+            SE = 0.195 / sqrt(19))
+
+median(Lambda_Niobrara$Lambda_Niobrara)
+
+colnames(Lambda_Arapahoe) <- c("Year", "Lambda")
+colnames(Lambda_Niobrara) <- c("Year", "Lambda")
+Lambda_Niobrara$Site <- "Niobrara"
+Lambda_Arapahoe$Site <- "Arapaho"
+lambda.comb <- rbind(Lambda_Arapahoe, Lambda_Niobrara)
+summary(lm(Lambda ~ Site, lambda.comb))
+```

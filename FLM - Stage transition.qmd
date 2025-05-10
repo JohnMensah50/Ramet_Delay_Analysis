@@ -1,0 +1,1122 @@
+---
+title: "Stage Transition Analysis"
+author: "John Mensah"
+format: html
+editor: visual
+---
+
+Note: In the codes below, I analysed the data for both sites combined and for each site separately. But we presented results for site-specific analysis in the Main Manuscripts.
+
+```{r}
+############## Load data ###########################
+library(RCurl)
+library(tidyverse)
+library(lmomco)
+library(dplyr)
+library(SPEI)
+library(MASS)
+library(nlme)
+library(mgcv)
+library(broom)
+library(here)
+library(purrr)
+source(here("make_data.R"))
+library(gratia)
+library(readr)
+#######################Function to Extract smooth term statistics###############
+get_smooth_stats <- function(gg){
+  s_table <- mgcv::summary.gam(gg)$s.table
+  return(as.data.frame(s_table))
+}
+mtime <- function(files){
+  lapply(Sys.glob(files),function(x) file.info(x)$mtime)
+}
+
+Lambda.Arapaho <- read.csv("Lambda_Arapahoe.csv")
+Lambda.Arapaho$X <- NULL
+colnames(Lambda.Arapaho) <- c("year", "Lambda", "Site")
+Lambda.Niobrara <- read.csv("Lambda_Niobrara.csv")
+Lambda.Niobrara$X <- NULL
+colnames(Lambda.Niobrara) <- c("year", "Lambda", "Site")
+
+lambda <- rbind(Lambda.Arapaho, Lambda.Niobrara)
+
+#Weather <- read.csv("Weather.All.csv")
+
+Arapaho_Weather <- read_csv("Arapaho.Weather.csv")
+Niobrara_Weather <- read_csv("Niobrara.Weather.csv")
+Weather <- rbind(Arapaho_Weather, Niobrara_Weather)
+Weather <- Weather[, c(1, 2, 3, 4, 10, 12, 13, 8)] 
+
+#Weather <- Weather[, c(1, 2,3,4, 13, 15)]
+colnames(Weather) <- c("year", "month", "ppt", "tmean", "spei", "ppt.anomaly", "tmean.anomaly", "Site")
+
+Weather <- data.frame(Weather)
+
+
+VR_Arapaho <- read.csv("VR_Arapahoe.csv")
+VR_Arapaho$X <- NULL
+VR_Arapaho$Site <- "Arapaho"
+VR_Niobrara <- read.csv("VR_Niobrara.csv")
+VR_Niobrara$X <- NULL
+VR_Niobrara$Site <- "Niobrara"
+
+
+VR <- rbind(VR_Niobrara, VR_Arapaho)
+colnames(VR)[colnames(VR) == 'Year'] <- 'year'
+
+
+```
+
+```{r}
+#################### SPEI #######################
+dat1.An = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = lambda[lambda$Site == "Arapaho", ],
+               monthStart = 7,
+               nUnits = 18,
+               meas = "spei")
+dat2.An = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = lambda[lambda$Site == "Niobrara", ],
+               monthStart = 7,
+               nUnits = 18,
+               meas = "spei")
+
+dat.spei.An = rbind(dat1.An, dat2.An)
+
+Lag.spei_data1 <- data.frame(Year=dat.spei.An$year, Site=dat.spei.An$Site, dat.spei.An$envCovar)
+#write.csv(Lag.spei_data1, "Lag.spei_data1.csv") 
+
+#######################################################
+#                    Temperature
+###########################################
+dat3.An = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = lambda[lambda$Site == "Arapaho", ],
+               monthStart = 7,
+               nUnits = 18,
+               meas = "tmean")
+dat4.An = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = lambda[lambda$Site == "Niobrara", ],
+               monthStart = 7,
+               nUnits = 18,
+               meas = "tmean")
+
+dat.temp.An = rbind(dat3.An, dat4.An)
+
+Lag.temp_data <- data.frame(Year=dat.temp.An$year, Site=dat.temp.An$Site, dat.temp.An$envCovar)
+#write.csv(Lag.temp_data, "Lag.temp_data.csv") 
+########################################################
+#                        PPT
+###########################################
+dat5.An = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = lambda[lambda$Site == "Arapaho", ],
+               monthStart = 7,
+               nUnits = 18,
+               meas = "ppt")
+dat6.An = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = lambda[lambda$Site == "Niobrara", ],
+               monthStart = 7,
+               nUnits = 18,
+               meas = "ppt")
+
+dat.ppt.An = rbind(dat5.An, dat6.An)
+
+Lag.ppt_data <- data.frame(Year=dat.ppt.An$year, Site=dat.ppt.An$Site, dat.ppt.An$envCovar)
+#write.csv(Lag.ppt_data, "Lag.ppt_data.csv")
+```
+
+# Lambda
+
+### Create Time-lag dataframe
+
+```{r}
+strt = 6 # starting month
+nUnits <- 18 # maximum time-lag to consider
+
+#################### SPEI #######################
+dat1 = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = lambda[lambda$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "spei")
+dat2 = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = lambda[lambda$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "spei")
+
+dat.spei = rbind(dat1, dat2)
+#  center year variable here
+dat.spei$yr = dat.spei$year - 2000
+dat.spei$lags_rev = -dat.spei$lags 
+#################### Tmean #######################
+dat3 = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = lambda[lambda$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "tmean")
+dat4 = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = lambda[lambda$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "tmean")
+
+dat.tmean = rbind(dat3, dat4)
+
+#  center year variable here
+dat.tmean$yr = dat.tmean$year - 2000
+dat.tmean$lags_rev = -dat.tmean$lags 
+
+#################### PPT #######################
+dat11 = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = lambda[lambda$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "ppt")
+dat12 = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = lambda[lambda$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "ppt")
+
+dat.ppt = rbind(dat11, dat12)
+#  center year variable here
+dat.ppt$yr = dat.ppt$year - 2000
+dat.ppt$lags_rev = -dat.ppt$lags 
+
+#################### PPT Anomaly#######################
+dat14 = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = lambda[lambda$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "ppt.anomaly")
+dat15 = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = lambda[lambda$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "ppt.anomaly")
+
+dat.ppt.anomaly = rbind(dat14, dat15)
+#  center year variable here
+dat.ppt.anomaly$yr = dat.ppt.anomaly$year - 2000
+dat.ppt.anomaly$lags_rev = -dat.ppt.anomaly$lags
+
+#################### PPT Anomaly#######################
+dat16 = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = lambda[lambda$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "tmean.anomaly")
+dat17 = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = lambda[lambda$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "tmean.anomaly")
+
+dat.tmean.anomaly = rbind(dat16, dat17)
+#  center year variable here
+dat.tmean.anomaly$yr = dat.tmean.anomaly$year - 2000
+dat.tmean.anomaly$lags_rev = -dat.tmean.anomaly$lags
+
+```
+
+### Fit Time-lag effect for all weather Variables
+
+```{r}
+############# SPEI
+spei.lambda = gam(log(Lambda) ~ Site + Site:yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.spei, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+############# Tmean
+tmean.lambda = gam(log(Lambda) ~ Site + Site:yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.tmean, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+############# PPT
+ppt.lambda = gam(log(Lambda) ~ Site + Site:yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.ppt, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+############# PPT Anomaly
+ppt.anomaly.lambda = gam(log(Lambda) ~ Site + Site:yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.ppt.anomaly, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+############# Tmean Anomaly
+tmean.anomaly.lambda = gam(log(Lambda) ~ Site + Site:yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.tmean.anomaly, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+
+############################## Store all models in DataFrame ######################
+library(MuMIn)
+Lambda_results <- data_frame(Variable = c("SPEI",  "Tmean", "tmean.anomaly.lambda", "PPT", "ppt.anomaly.lambda"),
+           #fits = c(spei.lambda, tmean.lambda, tmin.lambda, tmax.lambda, tanomaly.lambda, ppt.lambda, panomaly.lambda, tdp.lambda, vpdmin.lambda, vpdmax.lambda),
+           AIC = c(AIC(spei.lambda), AIC(tmean.lambda),AIC(tmean.anomaly.lambda), AIC(ppt.lambda), AIC(ppt.anomaly.lambda)),
+           AICc = c(AICc(spei.lambda), AICc(tmean.lambda),AICc(tmean.anomaly.lambda), AICc(ppt.lambda), AICc(ppt.anomaly.lambda)),
+           BIC = c(BIC(spei.lambda), BIC(tmean.lambda),BIC(tmean.anomaly.lambda), BIC(ppt.lambda), BIC(ppt.anomaly.lambda)),
+           pvalue = c(mgcv::summary.gam(spei.lambda)$s.table[, 4], mgcv::summary.gam(tmean.lambda)$s.table[, 4], mgcv::summary.gam(tmean.anomaly.lambda)$s.table[, 4], mgcv::summary.gam(ppt.lambda)$s.table[, 4], mgcv::summary.gam(ppt.anomaly.lambda)$s.table[, 4])
+           )
+
+Lambda_results <- Lambda_results %>% mutate(deltaAIC = AIC - min(AIC))
+
+
+map_df(list(spei.lambda), glance)
+map_df(list(spei.lambda), tidy)
+map_df(list(tmean.lambda), glance)
+map_df(list(tmean.lambda), tidy)
+map_df(list(ppt.lambda), glance)
+map_df(list(ppt.lambda), tidy)
+map_df(list(ppt.anomaly.lambda), tidy)
+map_df(list(ppt.anomaly.lambda), glance)
+map_df(list(tmean.anomaly.lambda), tidy)
+map_df(list(tmean.anomaly.lambda), glance)
+
+overview(spei.lambda)
+
+par(mfrow = c(2, 2))
+gam.check(spei.lambda)
+gam.check(ppt.lambda)
+gam.check(tmean.lambda)
+k.check(spei.lambda)
+
+draw(spei.lambda)
+```
+
+## Fit Model for Each Site
+
+```{r}
+dat.spei.A <- dat.spei %>% filter(Site == "Arapaho")
+dat.spei.N <- dat.spei %>% filter(Site == "Niobrara")
+
+dat.tmean.A <- dat.tmean %>% filter(Site == "Arapaho")
+dat.tmean.N <- dat.tmean %>% filter(Site == "Niobrara")
+
+dat.ppt.A <- dat.ppt %>% filter(Site == "Arapaho")
+dat.ppt.N <- dat.ppt %>% filter(Site == "Niobrara")
+
+dat.ppt.anomaly.A <- dat.ppt.anomaly %>% filter(Site == "Arapaho")
+dat.ppt.anomaly.N <- dat.ppt.anomaly %>% filter(Site == "Niobrara")
+
+dat.tmean.anomaly.A <- dat.tmean.anomaly %>% filter(Site == "Arapaho")
+dat.tmean.anomaly.N <- dat.tmean.anomaly %>% filter(Site == "Niobrara")
+
+############# SPEI
+spei.lambda.A = gam(log(Lambda) ~  yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.spei.A, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+spei.lambda.N = gam(log(Lambda) ~ yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.spei.N, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+overview(spei.lambda.A)
+overview(spei.lambda.N)
+
+draw(spei.lambda.A)
+############# Tmean
+tmean.lambda.A = gam(log(Lambda) ~ yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.tmean.A, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+tmean.lambda.N = gam(log(Lambda) ~ yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.tmean.N, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+
+overview(tmean.lambda.A)
+overview(tmean.lambda.N)
+############# PPT
+ppt.lambda.A = gam(log(Lambda) ~ yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.ppt.A, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+ppt.lambda.N = gam(log(Lambda) ~ yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.ppt.N, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+overview(ppt.lambda.A)
+overview(ppt.lambda.N)
+
+############# PPT Anomaly
+ppt.anomaly.lambda.A = gam(log(Lambda) ~ yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.ppt.anomaly.A, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+ppt.anomaly.lambda.N = gam(log(Lambda) ~ yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.ppt.anomaly.N, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+overview(ppt.anomaly.lambda.A)
+overview(ppt.anomaly.lambda.N)
+
+############# Tmean Anomaly
+tmean.anomaly.lambda.A = gam(log(Lambda) ~ yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.tmean.anomaly.A, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+tmean.anomaly.lambda.N = gam(log(Lambda) ~ yr + s(lags_rev, by=envCovar, bs="cs"), data=dat.tmean.anomaly.N, method="GCV.Cp",gamma=1.2, family = gaussian)
+
+
+overview(tmean.anomaly.lambda.A)
+overview(tmean.anomaly.lambda.N)
+
+
+
+gam.check(ppt.lambda.A)
+gam.check(tmean.lambda.A)
+
+draw(ppt.lambda.A)
+```
+
+```{r}
+map_df(list(spei.lambda.A), glance)
+map_df(list(spei.lambda.A), tidy)
+map_df(list(tmean.anomaly.lambda.A), glance)
+map_df(list(tmean.anomaly.lambda.A), tidy)
+map_df(list(ppt.anomaly.lambda.A), glance)
+map_df(list(ppt.anomaly.lambda.A), tidy)
+
+map_df(list(ppt.anomaly.lambda.N), tidy)
+map_df(list(ppt.anomaly.lambda.N), glance)
+map_df(list(spei.lambda.N), glance)
+map_df(list(spei.lambda.N), tidy)
+map_df(list(tmean.anomaly.lambda.N), glance)
+map_df(list(tmean.anomaly.lambda.N), tidy)
+
+AICc(tmean.anomaly.lambda.N, ppt.anomaly.lambda.N, spei.lambda.N)
+```
+
+## Vital Rates Model
+
+```{r}
+vars <- names(VR)[c(3:19, 21:25)]
+
+strt = 6 # starting month
+nUnits <- 18 # maximum time-lag to consider
+
+logit <- binomial()$linkfun
+
+VR1 <- lapply(VR[3:19],logit)
+VR2 <- lapply(VR[21:25],log)
+VR <- cbind(VR[1], VR[26],
+                        VR1, VR2)
+
+#################### SPEI #######################
+dat1.s = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = VR[VR$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "spei")
+dat2.s = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = VR[VR$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "spei")
+
+dat.spei.vr = rbind(dat1.s, dat2.s)
+#  center year variable here
+dat.spei.vr$yr = dat.spei.vr$year - 2000
+dat.spei.vr$lags_rev = -dat.spei.vr$lags 
+#################### Tmean #######################
+dat3.s = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = VR[VR$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "tmean")
+dat4.s = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = VR[VR$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "tmean")
+
+dat.tmean.vr = rbind(dat3.s, dat4.s)
+
+#  center year variable here
+dat.tmean.vr$yr = dat.tmean.vr$year - 2000
+dat.tmean.vr$lags_rev = -dat.tmean.vr$lags 
+ 
+#################### PPT #######################
+dat11.s = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = VR[VR$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "ppt")
+dat12.s = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = VR[VR$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "ppt")
+
+dat.ppt.vr = rbind(dat11.s, dat12.s)
+#  center year variable here
+dat.ppt.vr$yr = dat.ppt.vr$year - 2000
+dat.ppt.vr$lags_rev = -dat.ppt.vr$lags 
+
+
+#################### PPT Anomaly#######################
+dat14.s = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = VR[VR$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "ppt.anomaly")
+dat15.s = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = VR[VR$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "ppt.anomaly")
+
+dat.ppt.anomaly.vr = rbind(dat14.s, dat15.s)
+#  center year variable here
+dat.ppt.anomaly.vr$yr = dat.ppt.anomaly.vr$year - 2000
+dat.ppt.anomaly.vr$lags_rev = -dat.ppt.anomaly.vr$lags
+
+#################### Tmean Anomaly#######################
+dat16 = makeDat(envData = Weather[Weather$Site == "Arapaho",], 
+               response = VR[VR$Site == "Arapaho", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "tmean.anomaly")
+dat17 = makeDat(envData = Weather[Weather$Site == "Niobrara",], 
+               response = VR[VR$Site == "Niobrara", ],
+               monthStart = strt,
+               nUnits = nUnits,
+               meas = "tmean.anomaly")
+
+dat.tmean.anomaly.vr = rbind(dat16, dat17)
+#  center year variable here
+dat.tmean.anomaly.vr$yr = dat.tmean.anomaly.vr$year - 2000
+dat.tmean.anomaly.vr$lags_rev = -dat.tmean.anomaly.vr$lags
+
+```
+
+### Fit Vital Rate model to all Weather Variables
+
+```{r}
+vars <- names(VR)[c(3:24)]
+
+core.formula <- " ~ Site + Site:yr + s(lags_rev, by=envCovar, bs=\"cs\")"
+formulas <- lapply(paste(vars,core.formula),as.formula)
+
+get_smooth_stats <- function(gg){
+  s_table <- mgcv::summary.gam(gg)$s.table
+  return(as.data.frame(s_table))
+}
+
+######################### SPEI
+list_VR_spei <- lapply(formulas, function(ff) gam(ff, data=dat.spei.vr, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats <- map(list_VR_spei, get_smooth_stats)
+VR_spei_pick <- map_lgl(s_stats, function(xx)xx["p-value"]< 0.01)
+vars[VR_spei_pick]
+
+######################### Tmean
+list_VR_tmean <- lapply(formulas, function(ff) gam(ff, data=dat.tmean.vr, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats1 <- map(list_VR_tmean, get_smooth_stats)
+VR_tmean_pick <- map_lgl(s_stats1, function(xx)xx["p-value"]< 0.01)
+vars[VR_tmean_pick]
+
+
+######################### PPT
+list_VR_ppt <- lapply(formulas, function(ff) gam(ff, data=dat.ppt.vr, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats5 <- map(list_VR_ppt, get_smooth_stats)
+VR_ppt_pick <- map_lgl(s_stats5, function(xx)xx["p-value"]< 0.01)
+vars[VR_ppt_pick]
+
+######################### PPT
+list_VR_ppt.ano <- lapply(formulas, function(ff) gam(ff, data=dat.ppt.anomaly.vr, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats5.ano <- map(list_VR_ppt.ano, get_smooth_stats)
+VR_ppt.ano_pick <- map_lgl(s_stats5.ano, function(xx)xx["p-value"]< 0.01)
+vars[VR_ppt.ano_pick]
+
+
+######################### PPT
+list_VR_tmean.ano <- lapply(formulas, function(ff) gam(ff, data=dat.tmean.anomaly.vr, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats1.ano <- map(list_VR_tmean.ano, get_smooth_stats)
+VR_tmean.ano_pick <- map_lgl(s_stats1.ano, function(xx)xx["p-value"]< 0.01)
+vars[VR_tmean.ano_pick]
+
+#summary(list_VR_ppt[[5]])
+
+overview(list_VR_tmean.ano[[1]])
+summary(list_VR_tmean[[1]])
+```
+
+```{r}
+library(MuMIn)
+tmeanAIC=round(as.numeric(map(list_VR_tmean, AIC)),0)
+tmeanBIC=round(as.numeric(map(list_VR_tmean, BIC)),0)
+tmeanAICc=round(as.numeric(map(list_VR_tmean, AICc)),0)
+
+pptAIC=round(as.numeric(map(list_VR_ppt, AIC)),0)
+pptBIC=round(as.numeric(map(list_VR_ppt, BIC)),0)
+pptAICc=round(as.numeric(map(list_VR_ppt, AICc)),0)
+
+speiAIC=round(as.numeric(map(list_VR_spei, AIC)),0)
+speiBIC=round(as.numeric(map(list_VR_spei, BIC)),0)
+speiAICc=round(as.numeric(map(list_VR_spei, AICc)),0)
+
+temp.ano.AIC=round(as.numeric(map(list_VR_tmean.ano, AIC)),0)
+temp.ano.BIC=round(as.numeric(map(list_VR_tmean.ano, BIC)),0)
+temp.ano.AICc=round(as.numeric(map(list_VR_tmean.ano, AICc)),0)
+
+ppt.ano.AIC=round(as.numeric(map(list_VR_ppt.ano, AIC)),0)
+ppt.ano.BIC=round(as.numeric(map(list_VR_ppt.ano, BIC)),0)
+ppt.ano.AICc=round(as.numeric(map(list_VR_ppt.ano, AICc)),0)
+
+comp.table = data.frame(vital.rates=vars)
+comp.table=cbind(comp.table,tmeanAIC,tmeanAICc,tmeanBIC,pptAIC,pptAICc, pptBIC, speiAIC,speiAICc,speiBIC,temp.ano.AIC,temp.ano.AICc, temp.ano.BIC, ppt.ano.AIC,ppt.ano.AICc, ppt.ano.BIC)
+
+
+prettyvars <- c("Inactive to Flowering Single Rosette", "Inactive to Inactive","Inactive to Multiple Rosette", "Inactive to Single Rosette", "Survival of Single Rosette", "Single Rosette to Inactive", "Single Rosette to Flowering Single Rosette","Single Rosette to Flowering Multiple Rosette" ,"Single Rosette to Multiple Rosette", "Single Rosette to Single Rosette", "Survival of Multiple Rosette", "Multiple Rosette to Flowering Single Rosette", "Multiple Rosette to Flowering Multiple Rosette", "Multiple Rosette to Inactive", "Multiple Rosette to Multiple Rosette", "Multiple Rosette to Single Rosette", "Survival of Seedling", "Recruitment of Multiple Rosette", "Recruitment of Single Rosette", "Recruitment of Flowering Single Rosette", "Recruitment of Flowering Multiple Rosette", "Recruitment of Seedling")
+
+i=1
+
+compare_table=map_df(list(list_VR_tmean[[i]],
+                          list_VR_ppt[[i]],
+                          list_VR_spei[[i]], 
+                          list_VR_tmean.ano[[i]],
+                          list_VR_ppt.ano[[i]]),
+                     glance)
+# need tidy() for p value of smooth term
+b=map_df(list(list_VR_tmean[[i]],
+              list_VR_ppt[[i]],
+              list_VR_spei[[i]], 
+              list_VR_tmean.ano[[i]],
+              list_VR_ppt.ano[[i]]), tidy)
+compare_table <- cbind(VR=c(prettyvars[i],"","","",""),
+                       model = c("Mean Temperature","Total Precipitation", "Drought Index, SPEI", "Temperature Anomaly", "Precipitation Anomaly"),
+                       compare_table, b[,c(2,4,5)],
+                       deltaAIC = compare_table[,3] - min(compare_table[,3]))
+for (i in 2:22){
+  a=map_df(list(list_VR_tmean[[i]],
+                list_VR_ppt[[i]],
+                list_VR_spei[[i]],
+                list_VR_tmean.ano[[i]],
+                list_VR_ppt.ano[[i]]), glance)
+  # need tidy() for p value of smooth term
+  b=map_df(list(list_VR_tmean[[i]],
+                list_VR_ppt[[i]],
+                list_VR_spei[[i]],
+                list_VR_tmean.ano[[i]],
+                list_VR_ppt.ano[[i]]), tidy)
+  a <- cbind(VR=c(prettyvars[i],"","","",""),
+             model = c("Mean Temperature","Total Precipitation", "Drought Index, SPEI", "Temperature Anomaly", "Precipitation Anomaly"),
+             a, b[,c(2,4,5)],
+             deltaAIC = a[,3] - min(a[,3]))
+  compare_table=rbind(a,compare_table)
+}
+
+
+#######################################################
+
+temp <- data.frame(VR=c(prettyvars),
+      Site = "NA", 
+      Site.Yr = "NA",
+      P.Site = "NA", 
+      P.Site.Yr = "NA")
+
+spei <- data.frame(VR=c(prettyvars),
+      Site = "NA", 
+      Site.Yr = "NA",
+      P.Site = "NA", 
+      P.Site.Yr = "NA")
+
+ppt <- data.frame(VR=c(prettyvars),
+      Site = "NA", 
+      Site.Yr = "NA",
+      P.Site = "NA", 
+      P.Site.Yr = "NA")
+
+ppt.anomaly <- data.frame(VR=c(prettyvars),
+      Site = "NA", 
+      Site.Yr = "NA",
+      P.Site = "NA", 
+      P.Site.Yr = "NA")
+
+tmean.anomaly <- data.frame(VR=c(prettyvars),
+      Site = "NA", 
+      Site.Yr = "NA",
+      P.Site = "NA", 
+      P.Site.Yr = "NA")
+
+
+for (i in 1:22){
+  statistic1 = overview(list_VR_tmean[[i]])[1, 4]
+  statistic2 = overview(list_VR_tmean[[i]])[2, 4]
+  
+  statistic3 = overview(list_VR_ppt[[i]])[1, 4]
+  statistic4 = overview(list_VR_ppt[[i]])[2, 4]
+  
+  statistic5 = overview(list_VR_spei[[i]])[1, 4]
+  statistic6 = overview(list_VR_spei[[i]])[2, 4]
+  
+  statistic7 = overview(list_VR_tmean.ano[[i]])[1, 4]
+  statistic8 = overview(list_VR_tmean.ano[[i]])[2, 4]
+  
+  statistic9 = overview(list_VR_ppt.ano[[i]])[1, 4]
+  statistic10 = overview(list_VR_ppt.ano[[i]])[2, 4]
+  
+  p1 = overview(list_VR_tmean[[i]])[1, 5]
+  p2 = overview(list_VR_tmean[[i]])[2, 5]
+  
+  p3 = overview(list_VR_ppt[[i]])[1, 5]
+  p4 = overview(list_VR_ppt[[i]])[2, 5]
+  
+  p5 = overview(list_VR_spei[[i]])[1, 5]
+  p6 = overview(list_VR_spei[[i]])[2, 5]
+  
+  p7 = overview(list_VR_tmean.ano[[i]])[1, 5]
+  p8 = overview(list_VR_tmean.ano[[i]])[2, 5]
+  
+  p9 = overview(list_VR_ppt.ano[[i]])[1, 5]
+  p10 = overview(list_VR_ppt.ano[[i]])[2, 5]
+  
+  temp[i, 2] = statistic1
+  temp[i, 3] = statistic2 
+  temp[i, 4] = p1
+  temp[i, 5] = p2 
+  
+  spei[i, 2] = statistic5
+  spei[i, 3] = statistic6 
+  spei[i, 4] = p5
+  spei[i, 5] = p6 
+  
+  ppt[i, 2] = statistic3
+  ppt[i, 3] = statistic4 
+  ppt[i, 4] = p3
+  ppt[i, 5] = p4 
+  
+  ppt.anomaly[i, 2] = statistic9
+  ppt.anomaly[i, 3] = statistic10 
+  ppt.anomaly[i, 4] = p9
+  ppt.anomaly[i, 5] = p10 
+  
+  tmean.anomaly[i, 2] = statistic7
+  tmean.anomaly[i, 3] = statistic8 
+  tmean.anomaly[i, 4] = p7
+  tmean.anomaly[i, 5] = p8
+}
+
+#write.csv(ppt, "ppt.fixed.csv")
+#write.csv(spei, "spei.fixed.csv")
+#write.csv(temp, "temp.fixed.csv")
+#write.csv(compare_table, "compare_table.csv")
+```
+
+## Fitting model for each Site
+
+```{r}
+
+#########################################################Fit model each Site############################
+dat.spei.vrA <- dat.spei.vr %>% filter(Site == "Arapaho")
+dat.spei.vrN <- dat.spei.vr %>% filter(Site == "Niobrara")
+
+dat.tmean.vrA <- dat.tmean.vr %>% filter(Site == "Arapaho")
+dat.tmean.vrN <- dat.tmean.vr %>% filter(Site == "Niobrara")
+
+dat.ppt.vrA <- dat.ppt.vr %>% filter(Site == "Arapaho")
+dat.ppt.vrN <- dat.ppt.vr %>% filter(Site == "Niobrara")
+
+dat.ppt.anomaly.vrA <- dat.ppt.anomaly.vr %>% filter(Site == "Arapaho")
+dat.ppt.anomaly.vrN <- dat.ppt.anomaly.vr %>% filter(Site == "Niobrara")
+
+dat.tmean.anomaly.vrA <- dat.tmean.anomaly.vr %>% filter(Site == "Arapaho")
+dat.tmean.anomaly.vrN <- dat.tmean.anomaly.vr %>% filter(Site == "Niobrara")
+
+
+vars.N <- names(VR)[c(3:9, 11:15,17,20:22, 24)]
+vars.A <- names(VR)[c(7:24)]
+
+core.formula1 <- " ~ yr + s(lags_rev, by=envCovar, bs=\"cs\")"
+formulasA <- lapply(paste(vars.A,core.formula1),as.formula)
+formulasN <- lapply(paste(vars.N,core.formula1),as.formula)
+
+get_smooth_stats <- function(gg){
+  s_table <- mgcv::summary.gam(gg)$s.table
+  return(as.data.frame(s_table))
+}
+
+######################### SPEI
+list_VR_spei.A <- lapply(formulasA, function(ff) gam(ff, data=dat.spei.vrA, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats.A <- map(list_VR_spei.A, get_smooth_stats)
+VR_spei_pick.A <- map_lgl(s_stats.A, function(xx)xx["p-value"]< 0.01)
+vars.A[VR_spei_pick.A]
+
+
+list_VR_spei.N <- lapply(formulasN, function(ff) gam(ff, data=dat.spei.vrN, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats.N <- map(list_VR_spei.N, get_smooth_stats)
+VR_spei_pick.N <- map_lgl(s_stats.N, function(xx)xx["p-value"]< 0.01)
+vars.N[VR_spei_pick.N]
+
+######################### Tmean
+list_VR_tmean.A <- lapply(formulasA, function(ff) gam(ff, data=dat.tmean.vrA, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats1.A <- map(list_VR_tmean.A, get_smooth_stats)
+VR_tmean_pick.A <- map_lgl(s_stats1.A, function(xx)xx["p-value"]< 0.01)
+vars.A[VR_tmean_pick.A]
+
+list_VR_tmean.N <- lapply(formulasN, function(ff) gam(ff, data=dat.tmean.vrN, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats1.N <- map(list_VR_tmean.N, get_smooth_stats)
+VR_tmean_pick.N <- map_lgl(s_stats1.N, function(xx)xx["p-value"]< 0.01)
+vars.N[VR_tmean_pick.N]
+######################### PPT
+list_VR_ppt.A <- lapply(formulasA, function(ff) gam(ff, data=dat.ppt.vrA, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats5.A <- map(list_VR_ppt.A, get_smooth_stats)
+VR_ppt_pick.A <- map_lgl(s_stats5.A, function(xx)xx["p-value"]< 0.01)
+vars.A[VR_ppt_pick.A]
+
+list_VR_ppt.N <- lapply(formulasN, function(ff) gam(ff, data=dat.ppt.vrN, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats5.N <- map(list_VR_ppt.N, get_smooth_stats)
+VR_ppt_pick.N <- map_lgl(s_stats5.N, function(xx)xx["p-value"]< 0.01)
+vars.N[VR_ppt_pick.N]
+
+######################### PPT Anomaly
+list_VR_ppt.ano.A <- lapply(formulasA, function(ff) gam(ff, data=dat.ppt.anomaly.vrA, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats5_ano.A <- map(list_VR_ppt.ano.A, get_smooth_stats)
+VR_ppt.Ano_pick.A <- map_lgl(s_stats5_ano.A, function(xx)xx["p-value"]< 0.01)
+vars.A[VR_ppt.Ano_pick.A]
+
+list_VR_ppt.ano.N <- lapply(formulasN, function(ff) gam(ff, data=dat.ppt.anomaly.vrN, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats5_ano.N <- map(list_VR_ppt.ano.N, get_smooth_stats)
+VR_ppt.Ano_pick.N <- map_lgl(s_stats5_ano.N, function(xx)xx["p-value"]< 0.01)
+vars.N[VR_ppt.Ano_pick.N]
+
+######################### Tmean Anomaly
+list_VR_tmean.ano.A <- lapply(formulasA, function(ff) gam(ff, data=dat.tmean.anomaly.vrA, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats1_ano.A <- map(list_VR_tmean.ano.A, get_smooth_stats)
+VR_tmean.Ano_pick.A <- map_lgl(s_stats1_ano.A, function(xx)xx["p-value"]< 0.01)
+vars.N[VR_tmean.Ano_pick.A]
+
+list_VR_tmean.ano.N <- lapply(formulasN, function(ff) gam(ff, data=dat.tmean.anomaly.vrN, method="GCV.Cp",gamma=1.2, family = gaussian))
+s_stats1_ano.N <- map(list_VR_tmean.ano.N, get_smooth_stats)
+VR_tmean.Ano_pick.N <- map_lgl(s_stats1_ano.N, function(xx)xx["p-value"]< 0.01)
+vars.N[VR_tmean.Ano_pick.N]
+
+
+vars.A[VR_spei_pick.A]
+vars.N[VR_spei_pick.N]
+vars.A[VR_tmean_pick.A]
+vars.N[VR_tmean_pick.N]
+vars.A[VR_ppt_pick.A]
+vars.N[VR_ppt_pick.N]
+vars.A[VR_ppt.Ano_pick.A]
+vars.N[VR_ppt.Ano_pick.N]
+vars.A[VR_tmean.Ano_pick.A]
+vars.N[VR_tmean.Ano_pick.N]
+
+
+
+
+summary.gam(list_VR_spei.A[[12]]) 
+summary.gam(list_VR_spei.A[[14]]) 
+
+summary(list_VR_ppt.A[[1]])
+
+
+```
+
+## Refit Model for Seedling Recruitment using 10 Months Lag
+
+```{r}
+
+dat.spei.vrA$envCovar[, c(1:10)]
+dat.spei.vrA$lags_rev[, c(1:10)]
+
+############# SPEI
+spei.seed.A = gam(dat.spei.vrA$Seedling_rec ~  dat.spei.vrA$yr + s(dat.spei.vrA$lags_rev[, c(1:11)], by=dat.spei.vrA$envCovar[, c(1:11)], bs="cs", k=6), method="GCV.Cp",gamma=1.2, family = gaussian)
+
+spei.seed.N = gam(dat.spei.vrN$Seedling_rec ~  dat.spei.vrN$yr + s(dat.spei.vrN$lags_rev[, c(1:11)], by=dat.spei.vrN$envCovar[, c(1:11)], bs="cs", k=6), method="GCV.Cp",gamma=1.2, family = gaussian)
+
+overview(spei.seed.A)
+overview(spei.seed.N)
+
+
+############# Tmean
+tmean.seed.A = gam(dat.tmean.vrA$Seedling_rec ~  dat.tmean.vrA$yr + s(dat.tmean.vrA$lags_rev[, c(1:11)], by=dat.tmean.vrA$envCovar[, c(1:11)], bs="cs", k=6), method="GCV.Cp",gamma=1.2, family = gaussian)
+
+tmean.seed.N = gam(dat.tmean.vrN$Seedling_rec ~  dat.tmean.vrN$yr + s(dat.tmean.vrN$lags_rev[, c(1:11)], by=dat.tmean.vrN$envCovar[, c(1:11)], bs="cs", k=6), method="GCV.Cp",gamma=1.2, family = gaussian)
+
+
+overview(tmean.seed.A)
+overview(tmean.seed.N)
+
+############# PPT
+ppt.seed.A =  gam(dat.ppt.vrA$Seedling_rec ~  dat.ppt.vrA$yr + s(dat.ppt.vrA$lags_rev[, c(1:11)], by=dat.ppt.vrA$envCovar[, c(1:11)], bs="cs"), method="GCV.Cp",gamma=1.2, family = gaussian)
+
+ppt.seed.N = gam(dat.ppt.vrN$Seedling_rec ~  dat.ppt.vrN$yr + s(dat.ppt.vrN$lags_rev[, c(1:11)], by=dat.ppt.vrN$envCovar[, c(1:11)], bs="cs"), method="GCV.Cp",gamma=1.2, family = gaussian)
+
+overview(ppt.seed.A)
+overview(ppt.seed.N)
+
+############# PPT Anomaly
+ppt.anomaly.seed.A =  gam(dat.ppt.anomaly.vrA$Seedling_rec ~  dat.ppt.anomaly.vrA$yr + s(dat.ppt.anomaly.vrA$lags_rev[, c(1:11)], by=dat.ppt.anomaly.vrA$envCovar[, c(1:11)], bs="cs"), method="GCV.Cp",gamma=1.2, family = gaussian)
+
+ppt.anomaly.seed.N = gam(dat.ppt.anomaly.vrN$Seedling_rec ~  dat.ppt.anomaly.vrN$yr + s(dat.ppt.anomaly.vrN$lags_rev[, c(1:11)], by=dat.ppt.anomaly.vrN$envCovar[, c(1:11)], bs="cs"), method="GCV.Cp",gamma=1.2, family = gaussian)
+
+overview(ppt.anomaly.seed.A)
+overview(ppt.anomaly.seed.N)
+############# Tmean Anomaly
+tmean.anomaly.seed.A =  gam(dat.tmean.anomaly.vrA$Seedling_rec ~  dat.tmean.anomaly.vrA$yr + s(dat.tmean.anomaly.vrA$lags_rev[, c(1:11)], by=dat.tmean.anomaly.vrA$envCovar[, c(1:11)], bs="cs"), method="GCV.Cp",gamma=1.2, family = gaussian)
+
+tmean.anomaly.seed.N = gam(dat.tmean.anomaly.vrN$Seedling_rec ~  dat.tmean.anomaly.vrN$yr + s(dat.tmean.anomaly.vrN$lags_rev[, c(1:11)], by=dat.tmean.anomaly.vrN$envCovar[, c(1:11)], bs="cs"), method="GCV.Cp",gamma=1.2, family = gaussian)
+
+
+overview(tmean.anomaly.seed.A)
+overview(tmean.anomaly.seed.N)
+
+```
+
+## Making a custom plot
+
+#### Modified from code produced by Dr. Drew Tyre in Tenhumberg et al. (2018)
+
+```{r}
+x.lab <- c("July", "June", "May", "Apr", "Mar", "Feb", "Jan", "Dec", "Nov", "Oct", "Sep", "Aug", "July", "June", "May", "Apr", "Mar", "Feb", "Jan", "Dec")
+lagPlot1 <- function(ff, driver = "SPEI, 1 month", xlim = NULL, ylim = NULL,
+                    ylab = "Effect on transition rate",
+                    xlab = "Time lag (months prior to population census)",
+                    main = NULL, label_seasons = TRUE,
+                    label_p = TRUE){
+  if ( is.null(ff)){
+    # make an empty plotframe to skip
+    plot(1,1, type="n",axes=FALSE,xlab="",ylab="")
+    
+    return(NULL)
+  }
+  if ( is.null(main)){
+    main = as.character(formula(ff))[2]
+  }
+  s.table <- summary(ff)$s.table
+  plot(ff, select = 1, xlim = c(-19,-1), ylim = ylim,
+       ylab = ylab,
+       xlab = xlab,#, xaxt="n"
+       cex.axis = 2, alpha =1.5)
+  title(main = main, adj=0.05, font.main=1, cex.main=2)
+  abline(h=0, lty=5)
+  figcoord <- par("usr")
+  rect(c(0,-9),figcoord[3]*2,c(-3,-15),figcoord[4]*2,col=grey(level = 0.3, alpha =0.3), border = NA)
+  abline(v=c(-6), col = "grey", lty = 5)
+  #axis(1, 0:-18, x.lab, las = 2)
+  text(0:-19, 0.90*figcoord[3], labels = x.lab, cex = 1.5)
+  if (label_seasons){
+    text(c(-4,-7,-17),0.75*figcoord[4],labels="NGS")
+    text(c(-1,-13),0.75*figcoord[4],labels="GS")
+  }
+  # arrows(11,0.95*figcoord[4],0,0.95*figcoord[4])
+  # text(5.5,0.9*figcoord[4],labels="Predicted Transition")
+  if (label_p){
+    text(0.85*figcoord[1], 0.85*figcoord[3], labels = paste("p = ",format.pval(s.table[1,4], digits = 2, eps = 1e-3)))
+  }
+  #text(0.1*figcoord[1], 0.9*figcoord[3], labels = paste("AIC = ", AIC(ff)))
+  text(c(-3, -11),0.9*figcoord[4],labels=c("Census Year","Year Prior to Census"), cex = 1.5)
+  return(NULL)
+}
+
+###############################################################################
+lagPlot2 <- function(ff, driver = "SPEI, 1 month", xlim = NULL, ylim = NULL,
+                    ylab = "Effect on transition rate",
+                    xlab = "Time lag (months prior to population census)",
+                    main = NULL, label_seasons = TRUE,
+                    label_p = TRUE){
+  if ( is.null(ff)){
+    # make an empty plotframe to skip
+    plot(1,1, type="n",axes=FALSE,xlab="",ylab="")
+    return(NULL)
+  }
+  if ( is.null(main)){
+    main = as.character(formula(ff))[2]
+  }
+  s.table <- summary(ff)$s.table
+  plot(ff, select = 1, xlim = c(-19,-1), ylim = ylim,
+       ylab = ylab,
+       xlab = xlab, #, xaxt="n"
+       cex.axis = 2, alpha =1.5)
+  title(main = main, adj=0.05, font.main=1, cex.main=2)
+  abline(h=0, lty=5)
+  figcoord <- par("usr")
+  rect(c(0,-9),figcoord[3]*2,c(-3,-15),figcoord[4]*2,col=grey(level = 0.3, alpha =0.3), border = NA)
+  abline(v=c(-6), col = "grey", lty = 5)
+  #axis(1, 0:-18, x.lab, las = 2)
+  text(0:-19, 0.75*figcoord[3], labels = x.lab, cex = 1.5)
+  if (label_seasons){
+    text(c(-4,-7,-17),0.75*figcoord[4],labels="NGS")
+    text(c(-1,-13),0.75*figcoord[4],labels="GS")
+  }
+  # arrows(11,0.95*figcoord[4],0,0.95*figcoord[4])
+  # text(5.5,0.9*figcoord[4],labels="Predicted Transition")
+  if (label_p){
+    text(0.85*figcoord[1], 0.85*figcoord[3], labels = paste("p = ",format.pval(s.table[1,4], digits = 2, eps = 1e-3)))
+  }
+  #text(0.1*figcoord[1], 0.9*figcoord[3], labels = paste("AIC = ", AIC(ff)))
+  text(c(-3, -11),0.9*figcoord[4],labels=c("Census Year","Year Prior to Census"), cex = 1.5)
+  return(NULL)
+}
+
+###############################################################################
+lagPlot3 <- function(ff, driver = "SPEI, 1 month", xlim = NULL, ylim = NULL,
+                    ylab = "Effect on transition rate",
+                    xlab = "Time lag (months prior to population census)",
+                    main = NULL, label_seasons = TRUE,
+                    label_p = TRUE){
+  if ( is.null(ff)){
+    # make an empty plotframe to skip
+    plot(1,1, type="n",axes=FALSE,xlab="",ylab="")
+    return(NULL)
+  }
+  if ( is.null(main)){
+    main = as.character(formula(ff))[2]
+  }
+  s.table <- summary(ff)$s.table
+  plot(ff, select = 1, xlim = c(-11,-1), ylim = ylim,
+       ylab = ylab,
+       xlab = xlab, #, xaxt="n"
+       cex.axis = 2, alpha =1.5)
+  title(main = main, adj=0.05, font.main=1, cex.main=2)
+  abline(h=0, lty=5)
+  figcoord <- par("usr")
+  rect(c(0,-9),figcoord[3]*2,c(-3, -15),figcoord[4]*2,col=grey(level = 0.3, alpha =0.3), border = NA)
+  abline(v=c(-6), col = "grey", lty = 5)
+  #axis(1, 0:-18, x.lab, las = 2)
+  text(0:-11, 0.75*figcoord[3], labels = x.lab, cex = 1.5)
+  if (label_seasons){
+    text(c(-4,-7,-17),0.75*figcoord[4],labels="NGS")
+    text(c(-1,-13),0.75*figcoord[4],labels="GS")
+  }
+  # arrows(11,0.95*figcoord[4],0,0.95*figcoord[4])
+  # text(5.5,0.9*figcoord[4],labels="Predicted Transition")
+  if (label_p){
+    text(0.85*figcoord[1], 0.85*figcoord[3], labels = paste("p = ",format.pval(s.table[1,4], digits = 2, eps = 1e-3)))
+  }
+  #text(0.1*figcoord[1], 0.9*figcoord[3], labels = paste("AIC = ", AIC(ff)))
+  text(c(-3, -8),0.9*figcoord[4],labels=c("Census Year","Year Prior to Census"), cex = 1.5)
+  return(NULL)
+}
+
+lagPlot3(spei.seed.A)
+
+plot(spei.lambda)
+```
+
+# Site Plots
+
+```{r}
+
+par(mfrow=c(4,2), mar = c(3,3,3,0) + 0.1, oma = c(3, 3,0.1,0), cex=0.7)
+
+lagPlot3(spei.seed.A, ylim = c(-0.2, 0.6), ylab = "SPEI coefficients", xlab= " ", main = "(A) SPEI: Recruitment of Seedling - Arapaho",label_seasons = F, label_p = F) 
+
+lagPlot3(spei.seed.N, ylim = c(-0.2, 0.3), ylab = "SPEI coefficients", xlab= " ", main = "(B) SPEI: Recruitment of Seedling - Niobrara",label_seasons = F, label_p = F)
+
+lagPlot1(list_VR_spei.A[[16]], ylim = c(-0.4, 0.5), ylab = "SPEI coefficients", xlab= "", main = "(C) SPEI: Sprout of Flowering Single Rosette - Arapaho", label_seasons = F, label_p = F) 
+
+lagPlot2(list_VR_ppt.A[[1]], ylab = "PPT coefficients", xlab= " ", main = "(D) PPT: Survival of Single Rosette - Arapaho",label_seasons = F, label_p = F) 
+
+lagPlot2(list_VR_tmean.A[[4]], ylab = "Tmean coefficients", xlab= expression(paste("Time lag (months prior to population census)")), main = "(E) Tmean: Single Rosette to Flowering Multiple Rosette - Arapaho", label_seasons = F, label_p = F)  
+
+lagPlot2(list_VR_ppt.A[[11]], ylab = "PPT coefficients", xlab= " ", main = "(F) PPT: Multiple Rosette to Multiple Rosette - Arapaho", label_seasons = F, label_p = F)  
+
+lagPlot1(list_VR_ppt.A[[12]], ylab = "PPT coefficients", xlab= " " , main = "(G) PPT: Multiple Rosette to Single Rosette - Arapaho", label_seasons = F, label_p = F)  
+
+lagPlot2(spei.lambda.A, ylim = c(-0.01, 0.08), ylab = "SPEI coefficients", xlab= " ", main = expression(paste("(H) SPEI: Asymptotic log(", lambda[t],") - Arapaho")), label_seasons = F, label_p = F) 
+
+mtext(expression(paste("Estimated effect of weather variable on vital rate or Asymptotic log(", lambda[t],") ")), side = 2, outer = TRUE, line=0.5, cex = 2)
+mtext("Time lag (months prior to population census)", side = 1, outer = TRUE, 
+      line = 1, cex = 2)
+
+
+
+overview(spei.seed.A)
+overview(spei.seed.N)
+
+plot(spei.seed.N)
+```
+
+```{r}
+par(mfrow=c(4,2), mar = c(3,3,3,0) + 0.1, oma = c(3, 3,0.1,0), cex=0.7)
+
+lagPlot3(spei.seed.A, ylim = c(-0.2, 0.6), ylab = "SPEI coefficients", xlab= " ", main = "(A) SPEI: Recruitment of Seedling - Arapaho",label_seasons = F, label_p = F)
+
+lagPlot3(spei.seed.N, ylim = c(-0.2, 0.3), ylab = "SPEI coefficients", xlab= " ", main = "(B) SPEI: Recruitment of Seedling - Niobrara",label_seasons = F, label_p = F)
+
+lagPlot1(list_VR_spei.A[[16]], ylim = c(-0.4, 0.5), ylab = "SPEI coefficients", xlab= "", main = "(C) SPEI: Sprout of Flowering Single Rosette - Arapaho", label_seasons = F, label_p = F) 
+
+lagPlot2(list_VR_ppt.ano.A[[1]], ylab = "PPT coefficients", xlab= " ", main = "(D) PPT: Survival of Single Rosette - Arapaho",label_seasons = F, label_p = F) 
+
+lagPlot2(list_VR_tmean.ano.A[[4]], ylab = "Tmean coefficients", xlab= expression(paste("Time lag (months prior to population census)")), main = "(E) Tmean: Single Rosette to Flowering Multiple Rosette - Arapaho", label_seasons = F, label_p = F)  
+
+lagPlot2(list_VR_ppt.ano.A[[11]], ylab = "PPT coefficients", xlab= " ", main = "(F) PPT: Multiple Rosette to Multiple Rosette - Arapaho", label_seasons = F, label_p = F)  
+
+lagPlot1(list_VR_ppt.ano.A[[12]], ylab = "PPT coefficients", xlab= " " , main = "(G) PPT: Multiple Rosette to Single Rosette - Arapaho", label_seasons = F, label_p = F)  
+
+lagPlot2(spei.lambda.A, ylim = c(-0.01, 0.08), ylab = "SPEI coefficients", xlab= " ", main = expression(paste("(H) SPEI: Asymptotic log(", lambda[t],") - Arapaho")), label_seasons = F, label_p = F) 
+
+mtext(expression(paste("Estimated effect of weather variable on vital rate or Asymptotic log(", lambda[t],") ")), side = 2, outer = TRUE, line=0.5, cex = 2)
+mtext("Time lag (months prior to population census)", side = 1, outer = TRUE, 
+      line = 1, cex = 2)
+```
+
+## 
+
+## Arapaho Summary Table
+
+```{r}
+library(MuMIn)
+
+#rm(compare_table) # compare_table always overwritten by following
+# pretty variable names
+var.A <- c("Survival of Single Rosette", "Single Rosette to Inactive", "Single Rosette to Flowering Single Rosette","Single Rosette to Flowering Multiple Rosette" ,"Single Rosette to Multiple Rosette", "Single Rosette to Single Rosette", "Survival of Multiple Rosette", "Multiple Rosette to Flowering Single Rosette", "Multiple Rosette to Flowering Multiple Rosette", "Multiple Rosette to Inactive", "Multiple Rosette to Multiple Rosette", "Multiple Rosette to Single Rosette", "Survival of Seedling", "Recruitment of Multiple Rosette", "Recruitment of Single Rosette", "Recruitment of Flowering Single Rosette", "Recruitment of Flowering Multiple Rosette", "Recruitment of Seedling")
+
+i=1
+
+Arapaho_table=map_df(list(list_VR_tmean.ano.A[[i]],
+                          list_VR_ppt.ano.A[[i]],
+                          list_VR_spei.A[[i]]), glance)
+# need tidy() for p value of smooth term
+b=map_df(list(list_VR_tmean.ano.A[[i]],
+              list_VR_ppt.ano.A[[i]],
+              list_VR_spei.A[[i]]), tidy)
+Arapaho_table <- cbind(VR=c(var.A[i],"",""),
+                       model = c("Mean Temperature Anomaly","Total Precipitation Anomaly", "Drought Index, SPEI"),
+                       Arapaho_table, b[,c(2,4,5)],
+                       deltaAIC = Arapaho_table[,3] - min(Arapaho_table[,3]))
+for (i in 2:18){
+  a=map_df(list(list_VR_tmean.ano.A[[i]],
+                list_VR_ppt.ano.A[[i]],
+                list_VR_spei.A[[i]]), glance)
+  # need tidy() for p value of smooth term
+  b=map_df(list(list_VR_tmean.ano.A[[i]],
+                list_VR_ppt.ano.A[[i]],
+                list_VR_spei.A[[i]]), tidy)
+  a <- cbind(VR=c(var.A[i],"",""),
+             model = c("Mean Temperature Anomaly","Total Precipitation Anomaly", "Drought Index, SPEI"),
+             a, b[,c(2,4,5)],
+             deltaAIC = a[,3] - min(a[,3]))
+  Arapaho_table=rbind(a,Arapaho_table)
+}
+
+write.csv(Arapaho_table, "Arapaho_table.csv")
+
+vars.A
+```
+
+## Niobrara Summary Table
+
+```{r}
+var.N <- c("Inactive to Flowering Single Rosette", "Inactive to Inactive","Inactive to Multiple Rosette", "Inactive to Single Rosette", "Survival of Single Rosette", "Single Rosette to Inactive", "Single Rosette to Flowering Single Rosette", "Single Rosette to Multiple Rosette", "Single Rosette to Single Rosette", "Survival of Multiple Rosette", "Multiple Rosette to Flowering Single Rosette", "Multiple Rosette to Flowering Multiple Rosette", "Multiple Rosette to Multiple Rosette",   "Recruitment of Multiple Rosette", "Recruitment of Single Rosette", "Recruitment of Flowering Single Rosette", "Recruitment of Seedling")
+
+i=1
+
+Niobrara_table=map_df(list(list_VR_tmean.ano.N[[i]],
+                          list_VR_ppt.ano.N[[i]],
+                          list_VR_spei.N[[i]]), glance)
+# need tidy() for p value of smooth term
+b=map_df(list(list_VR_tmean.ano.N[[i]],
+              list_VR_ppt.ano.N[[i]],
+              list_VR_spei.N[[i]]), tidy)
+Niobrara_table <- cbind(VR=c(var.N[i],"",""),
+                       model = c("Mean Temperature Anomaly","Total Precipitation Anomaly", "Drought Index, SPEI"),
+                       Niobrara_table, b[,c(2,4,5)],
+                       deltaAIC = Niobrara_table[,3] - min(Niobrara_table[,3]))
+for (i in 2:17){
+  a=map_df(list(list_VR_tmean.ano.N[[i]],
+                list_VR_ppt.ano.N[[i]],
+                list_VR_spei.N[[i]]), glance)
+  # need tidy() for p value of smooth term
+  b=map_df(list(list_VR_tmean.N[[i]],
+                list_VR_ppt.N[[i]],
+                list_VR_spei.N[[i]]), tidy)
+  a <- cbind(VR=c(var.N[i],"",""),
+             model = c("Mean Temperature Anomaly","Total Precipitation Anomaly", "Drought Index, SPEI"),
+             a, b[,c(2,4,5)],
+             deltaAIC = a[,3] - min(a[,3]))
+  Niobrara_table=rbind(a,Niobrara_table)
+}
+
+
+
+
+write.csv(Niobrara_table, "Niobrara_table.csv")
+
+
+vars.N <- names(VR)[c(3:9, 11:15,17,20:22, 24)]
+vars.A <- names(VR)[c(7:24)]
+
+names(VR)[c(3:6)]
+
+
+
+names(VR)[c(10,16,18,19,23)]
+```
+
+## 

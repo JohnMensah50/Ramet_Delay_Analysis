@@ -1,0 +1,674 @@
+---
+title: "Weather Analysis"
+author: "John Mensah"
+format: html
+editor: visual
+---
+
+## 
+
+```{r}
+library(readr)
+library(tidyverse)
+library(SPEI)
+
+#Arapaho <- read_csv("https://prism.oregonstate.edu/explorer/tmp/nR2MtLJFJOrJY9wX/PRISM_ppt_tmean_stable_4km_195001_200912_41.6853_-101.9933.csv", skip = 10)
+
+#Arapaho <- Arapaho %>% separate(Date, into = c("Year", "Month"), sep = "-")
+
+Arapaho <- read_csv("Arapaho.Weather.csv")
+
+Arapaho <- Arapaho[, c(1:4)]
+
+Arapaho$Year <- as.integer(Arapaho$Year)
+Arapaho$Month <- as.integer(Arapaho$Month)
+
+Arapaho_short <- Arapaho %>% filter(Year %in% c(1990:2009))
+
+################################# Calculate SPEI using entire data (1950-2009) as Reference Period #########################
+
+Arapaho$PET <- as.numeric(thornthwaite(Arapaho$`tmean (degrees C)`, 41.68527778))
+Arapaho$spei_1 <- as.numeric(spei(Arapaho$`ppt (mm)` - Arapaho$PET, 1)$fitted)
+Arapaho$spei_12 <- as.numeric(spei(Arapaho$`ppt (mm)` - Arapaho$PET, 12)$fitted)
+
+Arapaho$Site <- "Arapaho"
+
+
+
+################################# Comparing the effect of Reference Period in SPEI Calculation#########################
+
+Arapaho_short$PET <- as.numeric(thornthwaite(Arapaho_short$`tmean (degrees C)`, 41.68527778))
+Arapaho_short$spei_1 <- as.numeric(spei(Arapaho_short$`ppt (mm)` - Arapaho_short$PET, 1)$fitted)
+Arapaho_short$spei_12 <- as.numeric(spei(Arapaho_short$`ppt (mm)` - Arapaho_short$PET, 12)$fitted)
+
+
+##################################################
+Arapaho_short2 <- Arapaho %>% filter(Year %in% c(1960:2009))
+
+Arapaho_short2$PET <- as.numeric(thornthwaite(Arapaho_short2$`tmean (degrees C)`, 41.68527778))
+Arapaho_short2$spei_1 <- as.numeric(spei(Arapaho_short2$`ppt (mm)` - Arapaho_short2$PET, 1)$fitted)
+Arapaho_short2$spei_12 <- as.numeric(spei(Arapaho_short2$`ppt (mm)` - Arapaho_short2$PET, 12)$fitted)
+
+Arapaho_short2 <- Arapaho_short2 %>% filter(Year %in% c(1990:2009))
+
+Arapaho_short1 <- Arapaho %>% filter(Year %in% c(1990:2009))
+
+plot(Arapaho_short$spei_1, Arapaho_short1$spei_1, xlab= "20yrs", ylab= "70yrs", main = "Different Reference Period for SPEI Estimation", pch=19)
+abline(a=0, b=1, col="red", lty=2, lwd=2)
+
+plot(Arapaho_short2$spei_1, Arapaho_short1$spei_1, xlab= "60yrs", ylab= "70yrs", main = "Different Reference Period for SPEI Estimation", pch=19)
+abline(a=0, b=1, col="red", lty=2, lwd=2)
+
+
+####################Calculate SPEI using Reference Period  Prior (1950-1989) to study Period#################
+Arapaho$Wat.Bal <- Arapaho$`ppt (mm)` - Arapaho$PET
+
+Arapaho.ts <- ts(na.omit(Arapaho[, -c(1,2,6,7,8)]), start = c(1950, 1), frequency = 12)
+
+plot(spei(Arapaho.ts[, "Wat.Bal"],  scale=1,  ref.start = c(1950, 1), ref.end = c(1989, 12)))
+plot(spei(Arapaho.ts[, "Wat.Bal"],  scale=12,  ref.start = c(1950, 1), ref.end = c(1989, 12)))
+
+spei1.A <- spei(Arapaho.ts[, "Wat.Bal"],  scale=1,  ref.start = c(1950, 1), ref.end = c(1989, 12))
+spei12.A <- spei(Arapaho.ts[, "Wat.Bal"],  scale=12,  ref.start = c(1950, 1), ref.end = c(1989, 12))
+
+spei1.A <- spei1.A$fitted
+spei12.A <- spei12.A$fitted
+
+spei1.A_df <- data.frame(
+  Date = time(spei1.A), # Converts time index to dates
+  Value = as.numeric(spei1.A) # Extracts the values
+)
+
+spei12.A_df <- data.frame(
+  Date = time(spei12.A), # Converts time index to dates
+  Value = as.numeric(spei12.A) # Extracts the values
+)
+
+Arapaho$spei1_RP <- spei1.A_df$Value
+Arapaho$spei12_RP <- spei12.A_df$Value
+
+
+Arapaho.t <- Arapaho %>% filter(Year %in% c(1990:2009))  
+  plot(Arapaho.t$spei_1, Arapaho.t$spei1_RP, xlab= "1950-2009", ylab= "1950-1989", main = "Different Reference Period for SPEI Estimation", pch=19)
+abline(a=0, b=1, col="red", lty=2, lwd=2)
+
+##########Calculate Anomaly for Tmean and PPT using Reference Period  Prior (1950-1989)#################
+
+Arapaho_base <- Arapaho %>% filter(Year %in% c(1950:1989))
+mean(Arapaho_base$`tmean (degrees C)`)
+mean(Arapaho_base$`ppt (mm)`)
+
+Arapaho <- Arapaho %>%
+  mutate(ppt.anomaly =  `ppt (mm)` - 36.86775,
+         tmean.anomaly = `tmean (degrees C)` - 8.610417)
+
+
+
+
+#write_csv(Arapaho, "Arapaho.Weather.csv")
+
+
+```
+
+```{r}
+######################################################################################
+
+
+
+
+#mean(Arapaho$`tmean (degrees C)`)
+#mean(Arapaho$`ppt (mm)`)
+
+Arapaho <- Arapaho %>% group_by(Year, Month) %>%
+  mutate(ppt.anomaly =  `ppt (mm)` - 36.86775,
+         tmean.anomaly = `tmean (degrees C)` - 8.610417)
+
+PPT_anomaly.A <- Arapaho %>% filter(Year %in% c(1990:2009)) %>%group_by(Year) %>%
+   summarise(ppt.anomaly = mean(ppt.anomaly)) %>% mutate(ppt.pos=ppt.anomaly>0) %>%
+   ggplot(aes(x=Year, y=ppt.anomaly)) + geom_bar(aes(color=ppt.pos, fill=ppt.pos), stat="identity", position="dodge") + ylab("Annual Precipitation Anomaly") + 
+   scale_fill_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0"))  + theme_bw() + 
+   scale_color_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0"))  + theme_bw() +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) + theme(legend.position = "none") + labs(title ="Arapaho")
+ 
+Temp_anomaly.A <- Arapaho %>% filter(Year %in% c(1990:2009)) %>%group_by(Year) %>%
+   summarise(tmean.anomaly = mean(tmean.anomaly)) %>% mutate(tmean.pos=tmean.anomaly>0) %>%
+   ggplot(aes(x=Year, y=tmean.anomaly)) + geom_bar(aes(color=tmean.pos, fill=tmean.pos), stat="identity", position="dodge") + 
+   ylab("Annual Temperature Anomaly") + 
+   scale_fill_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0"))  + theme_bw() + 
+   scale_color_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0"))  + theme_bw() +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) + theme(legend.position = "none") + labs(title ="Arapaho")
+ 
+tdate <- with(Arapaho, paste(Year, Month, 1, sep="-"))
+Arapaho$date <- lubridate::ymd(tdate) 
+
+Arapaho %>% mutate(spei.pos=spei_12>0) %>% filter(Year %in% c(1988:2009)) %>%
+ggplot(aes(x=date, y=spei_12)) + 
+  geom_bar(aes(color=spei.pos), 
+           stat="identity", position="dodge") + 
+  labs(title ="Arapaho") + 
+  guides(color=FALSE) + 
+  # extreme values from 5 category colorbrewer divergent RdBu palette
+  # colorblind and printer friendly.
+  scale_color_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0")) +
+  ylab("12-Month SPEI") + 
+  xlab("Year") +
+  theme_bw() + 
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15),
+        axis.text.x = element_text(angle = 90))
+
+```
+
+```{r}
+#Niobrara <- read_csv("https://prism.oregonstate.edu/explorer/tmp/zErchbrP5xYaEozA/PRISM_ppt_tmean_stable_4km_195001_200912_42.9261_-100.0956.csv", skip = 10)
+
+Niobrara <- read_csv("Niobrara.Weather.csv")
+
+Niobrara <- Niobrara[, c(1:4)]
+
+#Niobrara <- Niobrara %>% separate(Date, into = c("Year", "Month"), sep = "-")
+
+Niobrara$Year <- as.integer(Niobrara$Year)
+Niobrara$Month <- as.integer(Niobrara$Month)
+
+
+Niobrara$PET <- as.numeric(thornthwaite(Niobrara$`tmean (degrees C)`, 42.92611111))
+Niobrara$spei_1 <- as.numeric(spei(Niobrara$`ppt (mm)` - Niobrara$PET, 1)$fitted)
+Niobrara$spei_12 <- as.numeric(spei(Niobrara$`ppt (mm)` - Niobrara$PET, 12)$fitted)
+
+Niobrara$Site <- "Niobrara"
+
+
+#####################################Calculate SPEI using Reference Period  Prior (1950-1989) to study Period#################
+Niobrara$Wat.Bal <- Niobrara$`ppt (mm)` - Niobrara$PET
+
+Niobrara.ts <- ts(na.omit(Niobrara[, -c(1,2,6,7,8)]), start = c(1950, 1), frequency = 12)
+
+plot(spei(Niobrara.ts[, "Wat.Bal"],  scale=1,  ref.start = c(1950, 1), ref.end = c(1989, 12)))
+plot(spei(Niobrara.ts[, "Wat.Bal"],  scale=12,  ref.start = c(1950, 1), ref.end = c(1989, 12)))
+
+spei1.N <- spei(Niobrara.ts[, "Wat.Bal"],  scale=1,  ref.start = c(1950, 1), ref.end = c(1989, 12))
+spei12.N <- spei(Niobrara.ts[, "Wat.Bal"],  scale=12,  ref.start = c(1950, 1), ref.end = c(1989, 12))
+
+spei1.N <- spei1.N$fitted
+spei12.N <- spei12.N$fitted
+
+spei1.N_df <- data.frame(
+  Date = time(spei1.N), # Converts time index to dates
+  Value = as.numeric(spei1.N) # Extracts the values
+)
+
+spei12.N_df <- data.frame(
+  Date = time(spei12.N), # Converts time index to dates
+  Value = as.numeric(spei12.N) # Extracts the values
+)
+
+Niobrara$spei1_RP <- spei1.N_df$Value
+Niobrara$spei12_RP <- spei12.N_df$Value
+
+
+Niobrara.t <- Niobrara %>% filter(Year %in% c(1990:2009))  
+  plot(Niobrara.t$spei_1, Niobrara.t$spei1_RP, xlab= "1950-2009", ylab= "1950-1989", main = "Different Reference Period for SPEI Estimation", pch=19)
+abline(a=0, b=1, col="red", lty=2, lwd=2)
+
+
+Niobrara_base <- Niobrara %>% filter(Year %in% c(1950:1989))
+mean(Niobrara_base$`tmean (degrees C)`)
+mean(Niobrara_base$`ppt (mm)`)
+
+
+#mean(Niobrara$`tmean (degrees C)`)
+#mean(Niobrara$`ppt (mm)`)
+
+Niobrara <- Niobrara %>% 
+  mutate(ppt.anomaly =  `ppt (mm)` - 43.73577,
+         tmean.anomaly = `tmean (degrees C)` - 8.855208)
+
+#write_csv(Niobrara, "Niobrara.Weather.csv")
+
+#############################################################################
+
+######################################################################################
+
+
+
+
+
+```
+
+```{r}
+PPT_anomaly.N <- Niobrara %>% filter(Year %in% c(1990:2009)) %>%group_by(Year) %>%
+   summarise(ppt.anomaly = mean(ppt.anomaly)) %>% mutate(ppt.pos=ppt.anomaly>0) %>%
+   ggplot(aes(x=Year, y=ppt.anomaly)) + geom_bar(aes(color=ppt.pos, fill=ppt.pos), stat="identity", position="dodge") + ylab("Annual Precipitation Anomaly") + 
+   scale_fill_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0"))  + theme_bw() + 
+   scale_color_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0"))  + theme_bw() +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) + theme(legend.position = "none") + labs(title ="Niobrara")
+ 
+ Temp_anomaly.N <- Niobrara %>% filter(Year %in% c(1990:2009)) %>%group_by(Year) %>%
+   summarise(tmean.anomaly = mean(tmean.anomaly)) %>% mutate(tmean.pos=tmean.anomaly>0) %>%
+   ggplot(aes(x=Year, y=tmean.anomaly)) + geom_bar(aes(color=tmean.pos, fill=tmean.pos), stat="identity", position="dodge") + 
+   ylab("Annual Temperature Anomaly") + 
+   scale_fill_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0"))  + theme_bw() + 
+   scale_color_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0"))  + theme_bw() +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) + theme(legend.position = "none") + labs(title ="Niobrara")
+ 
+tdate <- with(Niobrara, paste(Year, Month, 1, sep="-"))
+Niobrara$date <- lubridate::ymd(tdate) 
+
+Niobrara %>% mutate(spei.pos=spei_12>0) %>% filter(Year %in% c(1988:2009)) %>%
+ggplot(aes(x=date, y=spei_12)) + 
+  geom_bar(aes(color=spei.pos), 
+           stat="identity", position="dodge") + 
+  labs(title ="Niobrara") + 
+  guides(color=FALSE) + 
+  # extreme values from 5 category colorbrewer divergent RdBu palette
+  # colorblind and printer friendly.
+  scale_color_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0")) +
+  ylab("12-Month SPEI") + 
+  xlab("Year") +
+  theme_bw() + 
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15),
+        axis.text.x = element_text(angle = 90))
+
+
+library(cowplot)
+plot_grid(PPT_anomaly.A, PPT_anomaly.N, Temp_anomaly.A, Temp_anomaly.N,labels = "AUTO", ncol=2)
+
+
+data <- rbind(Arapaho, Niobrara)
+
+data %>% group_by(Site, Year) %>% summarise(tmean = mean(tmean.anomaly)) %>% filter(Year %in% c(1990:2009)) %>%
+ggplot(aes(x=Site, y= tmean)) + geom_violin(width=0.5, aes(fill= Site), alpha=0.4, show.legend = FALSE) + geom_boxplot(width=0.1, aes(fill= Site), alpha=0.4, show.legend = FALSE) + theme_bw() + geom_point(col = "black") + ylab("Temperature Deviation, 40-years normal") +
+  scale_fill_viridis_d() + xlab("Site")  + annotate(geom="text", x=1.5, y=2, size=5, label="p=0.747") + #ggtitle("Temperature") +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) 
+
+data %>% group_by(Site, Year) %>% summarise(ppt = sum(`ppt (mm)`)) %>%
+ggplot(aes(x=Site, y= ppt)) + geom_violin(width=0.5, aes(fill= Site), alpha=0.4, show.legend = FALSE) + geom_boxplot(width=0.1, aes(fill= Site), alpha=0.4, show.legend = FALSE) + theme_bw() + geom_point(col = "black") + ylab(expression(paste("Asymptotic (", lambda[t],")"))) +
+  scale_fill_viridis_d() + xlab("Climate")  + annotate(geom="text", x=1.5, y=760, size=5, label="p=0.0002") + ggtitle("Arapaho") +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) 
+
+data %>% group_by(Site, Year) %>% summarise(ppt = sum(ppt.anomaly)) %>% filter(Year %in% c(1990:2009)) %>%
+ggplot(aes(x=Site, y= ppt)) + geom_violin(width=0.5, aes(fill= Site), alpha=0.4, show.legend = FALSE) + geom_boxplot(width=0.1, aes(fill= Site), alpha=0.4, show.legend = FALSE) + theme_bw() + geom_point(col = "black") + ylab("PPT Deviation, 40-years normal") +
+  scale_fill_viridis_d() + xlab("Site")  + annotate(geom="text", x=1.5, y=300, size=5, label="p=0.0002") + #ggtitle("Arapaho") +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) 
+
+
+summary(glmmTMB::glmmTMB(`ppt (mm)`~Site + (1|Year), data = data))
+
+pt <- data %>% group_by(Site, Year) %>% summarise(ppt = sum(ppt.anomaly)) %>% filter(Year %in% c(1990:2009))
+
+pt %>% group_by(Site) %>% summarise(ppt = median(ppt))
+
+tm <- data %>% group_by(Site, Year) %>% summarise(tmean = mean(tmean.anomaly)) %>% filter(Year %in% c(1990:2009))
+
+tm %>% group_by(Site) %>% summarise(tmean = median(tmean))
+#Arapaho	6.74700			
+#Niobrara	33.44076		
+```
+
+# Statistics
+
+```{r}
+##NB: Since the population responded to weather 18 months in the past, we analyzed the weather conditions for the study period spanning from 1988-2009. 
+Niobrara_current <- Niobrara %>% filter(Year %in% c(1988:2009))
+Niobrara_current$Period <- "Current"
+Niobrara_baseline <-Niobrara %>% filter(Year %in% c(1950:1989))
+Niobrara_baseline$Period <- "Baseline"
+
+Arapaho_current <- Arapaho %>% filter(Year %in% c(1988:2009))
+Arapaho_current$Period <- "Current"
+Arapaho_baseline <- Arapaho %>% filter(Year %in% c(1950:1989))
+Arapaho_baseline$Period <- "Baseline"
+
+summary(lm(Arapaho_current$spei1_RP~Niobrara_current$spei1_RP))
+mean(Arapaho_current$spei1_RP)
+mean(Niobrara_current$spei1_RP)
+
+Niobrara <- rbind(Niobrara_baseline, Niobrara_current)
+Arapaho <- rbind(Arapaho_baseline, Arapaho_current)
+
+wilcox.test(Niobrara_current$`ppt (mm)`, Niobrara_baseline$`ppt (mm)`)
+mean(Niobrara_current$`ppt (mm)`) - mean(Niobrara_baseline$`ppt (mm)`)
+wilcox.test(Niobrara_current$`tmean (degrees C)`, Niobrara_baseline$`tmean (degrees C)`)
+mean(Niobrara_current$`tmean (degrees C)`) - mean(Niobrara_baseline$`tmean (degrees C)`)
+
+wilcox.test(Niobrara_current$spei_1, Niobrara_baseline$spei_1)
+wilcox.test(Niobrara_current$spei1_RP, Niobrara_baseline$spei1_RP)
+
+wilcox.test(Arapaho_current$`ppt (mm)`, Arapaho_baseline$`ppt (mm)`)
+wilcox.test(Arapaho_current$`tmean (degrees C)`, Arapaho_baseline$`tmean (degrees C)`)
+wilcox.test(Arapaho_current$spei_1, Arapaho_baseline$spei_1)
+
+wilcox.test(Niobrara_current$`ppt (mm)`, Arapaho_current$`ppt (mm)`)
+wilcox.test(Niobrara_current$`tmean (degrees C)`, Arapaho_current$`tmean (degrees C)`)
+wilcox.test(Niobrara_current$spei_1, Arapaho_current$spei_1)
+
+mean(Arapaho_current$`ppt (mm)`)
+mean(Niobrara_current$`ppt (mm)`)
+
+Current_site <- rbind(Arapaho_current, Niobrara_current)
+
+summary(glm(`ppt (mm)` ~ Site + Year, family = gaussian(link="identity"), data = Current_site))
+summary(glm(`tmean (degrees C)` ~ Site + Year, family = gaussian(link="identity"), data = Current_site))
+summary(glm(spei_1 ~ Site + Year, family = gaussian(link="identity"), data = Current_site))
+
+summary(glm(`ppt (mm)` ~ Period + Year, family = gaussian(link="identity"), data = Niobrara))
+summary(glm(`tmean (degrees C)` ~ Period + Year, family = gaussian(link="identity"),  data = Niobrara))
+summary(glm(spei_1 ~ Period + Year, family = gaussian(link="identity"), data = Niobrara))
+
+summary(glm(`ppt (mm)` ~ Period + Year, family = gaussian(link="identity"), data = Arapaho))
+summary(glm(`tmean (degrees C)` ~ Period + Year, family = gaussian(link="identity"),  data = Arapaho))
+#summary(lm(spei_1 ~ Period + Year,  data = Arapaho$spei_1))
+
+
+#####################################################################
+library(Kendall) 
+library(zyp)
+library(boot)
+
+### Create time series data
+
+ts.Arapaho_ppt <- ts(na.omit(Arapaho_current$`ppt (mm)`), start = c(1988,01,01), frequency = 12)
+plot(ts.Arapaho_ppt)
+ts.Arapaho_tmean <- ts(na.omit(Arapaho_current$`tmean (degrees C)`), start = c(1988,01,01), frequency = 12)
+ts.Arapaho_spei <- ts(na.omit(Arapaho_current$spei_1), start = c(1988,01,01), frequency = 12)
+
+
+acf(ts.Arapaho_ppt, lag.max=12, type = "covariance")
+
+MKtau<-function(z) MannKendall(z)$tau
+tsboot(ts.Arapaho_ppt, MKtau, R=500, l=5, sim="fixed")
+MannKendall(ts.Arapaho_ppt)
+MannKendall(ts.Arapaho_tmean)
+MannKendall(ts.Arapaho_spei)
+
+ts.Niobrara_ppt <- ts(na.omit(Niobrara_current$`ppt (mm)`), start = c(1988,01,01), frequency = 12)
+plot(ts.Niobrara_ppt)
+ts.Niobrara_tmean <- ts(na.omit(Niobrara_current$`tmean (degrees C)`), start = c(1988,01,01), frequency = 12)
+plot(ts.Niobrara_tmean)
+ts.Niobrara_spei <- ts(na.omit(Niobrara_current$spei_1), start = c(1988,01,01), frequency = 12)
+plot(ts.Niobrara_spei)
+
+MannKendall(ts.Niobrara_ppt)
+MannKendall(ts.Niobrara_tmean)
+MannKendall(ts.Niobrara_spei)
+
+plot(ts.Niobrara_ppt)
+
+sd(Arapaho_current$spei1_RP)/sqrt(length(Arapaho_current$spei1_RP))
+sd(Niobrara_current$`ppt (mm)`)/sqrt(length(Niobrara_current$`ppt (mm)`))
+mean(Niobrara_current$spei1_RP)
+
+
+((mean(Arapaho_current$`ppt (mm)`) - mean(Arapaho_baseline$`ppt (mm)`))/mean(Arapaho_baseline$`ppt (mm)`))*100
+summary(lm(`ppt (mm)`~ Period, Arapaho))
+sd(Arapaho_current$`ppt (mm)`)/sqrt(length(Arapaho_current$`ppt (mm)`))
+
+((mean(Arapaho_current$`tmean (degrees C)`) - mean(Arapaho_baseline$`tmean (degrees C)`))/mean(Arapaho_baseline$`tmean (degrees C)`))*100
+summary(lm(`tmean (degrees C)`~ Period, Arapaho))
+
+#((mean(Arapaho_current$spei1_RP) - mean(Arapaho_baseline$spei1_RP))/mean(Arapaho_baseline$spei1_RP))*100
+#((mean(Arapaho_current$spei_1) - mean(Arapaho_baseline$spei_1, na.rm = T))/mean(Arapaho_baseline$spei_1))*100
+
+
+((mean(Niobrara_current$`ppt (mm)`) - mean(Niobrara_baseline$`ppt (mm)`))/mean(Niobrara_baseline$`ppt (mm)`))*100
+summary(lm(`ppt (mm)`~ Period, Niobrara))
+
+((mean(Niobrara_current$`tmean (degrees C)`) - mean(Niobrara_baseline$`tmean (degrees C)`))/mean(Niobrara_baseline$`tmean (degrees C)`))*100
+summary(lm(`tmean (degrees C)`~ Period, Niobrara))
+
+#((mean(Niobrara_current$spei1_RP) - mean(Niobrara_baseline$spei1_RP))/mean(Niobrara_baseline$spei1_RP))*100
+
+mean(Niobrara_baseline$`tmean (degrees C)`)
+mean(Arapaho_baseline$`tmean (degrees C)`)
+
+mean(Niobrara_baseline$`ppt (mm)`)
+mean(Arapaho_baseline$`ppt (mm)`)
+
+
+mean(Niobrara_current$spei1_RP)
+mean(Arapaho_current$spei1_RP)
+
+summary(glm(`tmean (degrees C)` ~ Site, family = gaussian(link="identity"), data = Current_site))
+mean(Niobrara_current$`tmean (degrees C)`)
+```
+
+```{r}
+#library(bcp)
+#library(tidyverse)
+Weather.All <- rbind(Arapaho, Niobrara)
+
+
+#Weather.All <- rbind(Arapaho, Niobrara)
+
+tdate <- with(Weather.All, paste(Year, Month, 1, sep="-"))
+Weather.All$date <- lubridate::ymd(tdate)
+Weather.All <- mutate(Weather.All,
+                spei.pos=spei_12>0,
+                spei.pos_RP=spei12_RP>0
+              )
+
+#mean(Arapaho_current$`tmean (degrees C)`)
+#mean(Niobrara_current$`tmean (degrees C)`)
+
+Temp.M <- data.frame(Site = c("Arapaho", "Niobrara"), Mean = c(8.61, 8.855))
+Temp.M$Site <- factor(Temp.M$Site)
+
+ Tmean.plot <- Weather.All %>% filter(Year %in% c(1988:2009)) %>%
+  group_by(Site, Year) %>%
+  summarise(tmean.A = mean(`tmean (degrees C)`)) %>%
+  ungroup() %>%               
+ggplot(aes(x=Year, y=tmean.A)) + 
+  geom_line() + geom_point() +
+  facet_wrap(~Site) + theme_bw() + ylab("Mean Annual Temperature C")+ geom_hline(data = Temp.M, aes(yintercept = Mean), linetype = 4, lwd = 1) + 
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15),
+        axis.text.x = element_text(angle = 90))
+ 
+#mean(Arapaho_current$`ppt (mm)`)
+#mean(Niobrara_current$`ppt (mm)`)
+
+PPT.M <- data.frame(Site = c("Arapaho", "Niobrara"), Mean = c(36.86775, 43.73577))
+PPT.M$Site <- factor(PPT.M$Site)
+ 
+  PPT.plot <- Weather.All %>% filter(Year %in% c(1988:2009)) %>%
+  group_by(Site, Year) %>%
+  summarise(ppt.A = mean(`ppt (mm)`)) %>%
+  ungroup() %>%               
+ggplot(aes(x=Year, y=ppt.A)) + 
+  geom_line() + geom_point() +
+  facet_wrap(~Site) + theme_bw() + ylab("Mean Annual Precipitation (mm)") + geom_hline(data = PPT.M, aes(yintercept = Mean), linetype = 4, lwd = 1) + 
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15),
+        axis.text.x = element_text(angle = 90)) 
+
+#SPEI.M <- data.frame(Site = c("Arapaho", "Niobrara"), Mean = c(0.0128, 0.0097))
+#SPEI.M$Site <- factor(SPEI.M $Site)
+
+#  Weather.All %>% filter(Year %in% c(1988:2009)) %>%
+#  group_by(Site, Year) %>%
+#  summarise(spei.A = mean(spei_1)) %>%
+#  ungroup() %>%               
+#ggplot(aes(x=Year, y=spei.A)) + 
+#  geom_line() + geom_point() +
+#  facet_wrap(~Site) + theme_bw() + ylab("Mean Annual 1-Month SPEI") + geom_hline(data = SPEI.M, aes(yintercept = Mean), linetype = 4, lwd = 1) + 
+#  theme(text = element_text(size = 15),
+#        strip.text = element_text(size=15),
+#        axis.text.x = element_text(angle = 90)) 
+  
+  
+  SPEI12_plot <- Weather.All %>% filter(Year %in% c(1988:2009)) %>%
+ggplot(aes(x=date, y=spei_12)) + 
+  geom_bar(aes(color=spei.pos), 
+           stat="identity", position="dodge") + 
+  facet_wrap(~Site) + 
+  guides(color=FALSE) + 
+  # extreme values from 5 category colorbrewer divergent RdBu palette
+  # colorblind and printer friendly.
+  scale_color_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0")) +
+  ylab("12-Month SPEI") + 
+  xlab("Year") +
+  theme_bw() + 
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15),
+        axis.text.x = element_text(angle = 90))
+  
+    SPEI12_plot_RP <- Weather.All %>% filter(Year %in% c(1988:2009)) %>%
+ggplot(aes(x=date, y=spei12_RP)) + 
+  geom_bar(aes(color=spei.pos_RP), 
+           stat="identity", position="dodge") + 
+  facet_wrap(~Site) + 
+  guides(color=FALSE) + 
+  # extreme values from 5 category colorbrewer divergent RdBu palette
+  # colorblind and printer friendly.
+  scale_color_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0")) +
+  ylab("12-Month SPEI") + 
+  xlab("Year") +
+  theme_bw() + 
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15),
+        axis.text.x = element_text(angle = 90))
+    
+    
+PPT_anomaly <- Weather.All %>% filter(Year %in% c(1988:2009)) %>%group_by(Year, Site) %>%
+   summarise(ppt.anomaly = mean(ppt.anomaly)) %>% mutate(ppt.pos=ppt.anomaly>0) %>%
+   ggplot(aes(x=Year, y=ppt.anomaly)) + geom_bar(aes(color=ppt.pos, fill=ppt.pos), stat="identity", position="dodge") + ylab("Annual Precipitation Anomaly") + 
+   scale_fill_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0"))  + theme_bw() + 
+   scale_color_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0"))  + theme_bw() +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) + theme(legend.position = "none") + facet_wrap(~Site)
+ 
+ Temp_anomaly <- Weather.All %>% filter(Year %in% c(1988:2009)) %>%group_by(Site, Year) %>%
+   summarise(tmean.anomaly = mean(tmean.anomaly)) %>% mutate(tmean.pos=tmean.anomaly>0) %>%
+   ggplot(aes(x=Year, y=tmean.anomaly)) + geom_bar(aes(color=tmean.pos, fill=tmean.pos), stat="identity", position="dodge") + 
+   ylab("Annual Temperature Anomaly") + 
+   scale_fill_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0"))  + theme_bw() + 
+   scale_color_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0"))  + theme_bw() +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) + theme(legend.position = "none") + facet_wrap(~Site)
+      
+    
+      
+  library(cowplot)  
+    
+ plot_grid(Tmean.plot, PPT.plot, SPEI12_plot_RP, labels = "AUTO", ncol=1) 
+ 
+ plot_grid(Temp_anomaly, PPT_anomaly, SPEI12_plot_RP, labels = "AUTO", ncol=1)
+```
+
+```{r}
+library(readr)
+library(tidyverse)
+library(SPEI)
+
+#Nebraska_data <- read_csv("https://prism.oregonstate.edu/explorer/tmp/jZwEOE78sQOdWpFc/PRISM_ppt_tmean_provisional_800m_194001_202412_45.0000_-123.0000.csv", skip = 10)
+
+Nebraska_data <- read_csv("Nebraska_data.csv")
+
+Nebraska_data <- Nebraska_data %>% separate(Date, into = c("Year", "Month"), sep = "-")
+
+Nebraska_data$PET <- as.numeric(thornthwaite(Nebraska_data$`tmean (degrees C)`, 45))
+
+
+Nebraska_data$Wat.Bal <- Nebraska_data$`ppt (mm)` - Nebraska_data$PET
+
+Nebraska_data.ts <- ts((Nebraska_data[, c(6)]), start = c(1940, 1), frequency = 12)
+
+#plot(spei(Arapaho.ts[, "Wat.Bal"],  scale=1,  ref.start = c(1950, 1), ref.end = c(1989, 12)))
+plot(spei(Nebraska_data.ts[, "Wat.Bal"],  scale=12,  ref.start = c(1940, 1), ref.end = c(1999, 12)))
+
+#spei1.A <- spei(Arapaho.ts[, "Wat.Bal"],  scale=1,  ref.start = c(1950, 1), ref.end = c(1989, 12))
+spei12 <- spei(Nebraska_data.ts[, "Wat.Bal"],  scale=12,  ref.start = c(1940, 1), ref.end = c(1999, 12))
+
+spei12 <- spei12$fitted
+
+spei12._df <- data.frame(
+  Date = time(spei12), # Converts time index to dates
+  Value = as.numeric(spei12) # Extracts the values
+)
+
+Nebraska_data$spei12 <- spei12._df$Value
+
+#SPEI12_plot <- Weather.All %>% filter(Year %in% c(1988:2009)) %>%
+
+
+tdate <- with(Nebraska_data, paste(Year, Month, 1, sep="-"))
+Nebraska_data$date <- lubridate::ymd(tdate)
+Nebraska_data <- mutate(Nebraska_data,
+                spei.pos=spei12>0
+              )
+
+ggplot(Nebraska_data, aes(x=date, y=spei12)) + 
+  geom_bar(aes(color=spei.pos), 
+           stat="identity", position="dodge") + 
+  #facet_wrap(~Site) + 
+  guides(color=FALSE) + 
+  # extreme values from 5 category colorbrewer divergent RdBu palette
+  # colorblind and printer friendly.
+  scale_color_manual(values = c("FALSE" = "#ca0020", "TRUE" = "#0571b0")) +
+  ylab("12-Month SPEI") + 
+  xlab("Year") +
+  theme_bw() + 
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15),
+        axis.text.x = element_text(angle = 90)) #+ geom_vline(xintercept = 11000, linetype = 2)
+
+table(Nebraska_data$spei.pos)
+ 546/(546+463)
+ 0.5411298
+
+kk1 <- Nebraska_data %>% filter(Year %in% c(1950:1999)) 
+table(kk1$spei.pos)
+294/(294+306)
+0.49
+
+kk <- Nebraska_data %>% filter(Year %in% c(2000:2024)) 
+table(kk$spei.pos)
+192/(192+108)
+0.64
+
+
+####################################################################################
+library(Kendall) 
+library(zyp)
+library(boot)
+
+Nebraska_P.ts <- ts((Nebraska_data[, c(3)]), start = c(1940, 1), frequency = 12)
+Nebraska_T.ts <- ts((Nebraska_data[, c(4)]), start = c(1940, 1), frequency = 12)
+
+MannKendall(Nebraska_P.ts)
+MannKendall(Nebraska_T.ts)
+mean(Nebraska_data$`ppt (mm)`)
+mean(Nebraska_data$`tmean (degrees C)`)
+Nebraska_data$Year <- as.numeric(Nebraska_data$Year)
+sen_PPT <- zyp.sen(`ppt (mm)`~Year, Nebraska_data) 
+sen_T <- zyp.sen(`tmean (degrees C)`~Year, Nebraska_data)
+
+Nebraska_data %>% group_by(Year) %>% summarise(tmean = mean(`tmean (degrees C)`),
+                                                ppt = mean(`ppt (mm)`)) %>%
+ggplot(mapping = aes(x = Year, y = ppt)) + 
+geom_point() + geom_line() + geom_label(aes(1960, 150, hjust = 0, vjust = 2, label = paste("sens.slope = -0.008", "\n", 
+"p-value = 0.70")))  +  xlab("Year") + ylab("Mean Annual PPT") +  theme_classic() + geom_hline(yintercept = 88.75591, linetype = 2, col = "red")
+
+#geom_abline(intercept = sen_PPT$coefficients[[1]], slope =
+#sen_PPT$coefficients[[2]], col = "red")
+
+
+Nebraska_data %>% group_by(Year) %>% summarise(tmean = mean(`tmean (degrees C)`),
+                                                ppt = mean(`ppt (mm)`)) %>%
+ggplot(mapping = aes(x = Year, y = tmean)) + 
+geom_point() + geom_line() + geom_label(aes(1970, 13, hjust = 0, vjust = 1, label = paste("sens.slope = 0.0314", "\n", 
+"p-value = 0.13")))  +  xlab("Year") + ylab("Mean Annual Temperature") +  theme_classic() +
+geom_hline(yintercept = 11.59569, linetype = 2, col = "red")  
+
+#geom_abline(intercept = sen_T$coefficients[[1]], slope =
+#sen_T$coefficients[[2]], col = "red")
+```

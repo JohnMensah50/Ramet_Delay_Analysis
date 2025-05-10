@@ -1,0 +1,2543 @@
+---
+title: "Vital Rates Estimates"
+format: html
+editor: visual
+---
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(lme4)
+library(readr)
+```
+
+```{r}
+#Read in Stage Transition Data
+UAA <- read.csv("UAA_single.csv")
+UAB <- read.csv("UAB_single.csv")
+UAC <- read.csv("UAC_single.csv")
+UAD <- read.csv("UAD_single.csv")
+
+UAA <- UAA %>% select(-NEWROS)
+UAB <- UAB %>% select(-NEWROS)
+UAC <- UAC %>% select(-NEWROS)
+UAD <- UAD %>% select(-NEWROS)
+
+Arapahoe <- rbind(UAA, UAB, UAC, UAD)
+
+Arapahoe <- Arapahoe %>% transform(Unique.RAMET = interaction(SITE, PLOT, RAMET))
+Arapahoe <- Arapahoe %>% relocate(c(Unique.RAMET), .after = RAMET)
+
+#All <- rbind(Arapaho, Arapaho)
+
+#All1 <- All%>%filter(PrevStage %in% c("inactive", "First.Appearance", "MF", "MR", "Seedling", "SF", "SR"))
+#All1 <- All1%>%filter(stage.modified != "not.tagged") 
+#with(All1, table(stage.modified, PrevStage, useNA = "always"))
+```
+
+```{r}
+#Preparing Data for Survival and Stage analysis
+keeps <- c("SITE","PLOT","RAMET","Unique.RAMET", "Month","Year","NextYear","stage.modified", "NextStage", "Survival") #select only relevant columns necessary for vital rate calculation
+
+Arapahoe <- Arapahoe[keeps] # Drop all other columns, not necessary for now.
+
+colnames(Arapahoe) = c("SITE","PLOT","RAMET", "Unique.RAMET", "Month","Year","Fate.Year","state", "Fate", "Survival")
+
+## Diferentiate between natural death and death due to flowering. Set all death due to flowering to NA
+Arapahoe$Natu.Death = 1
+Arapahoe$Natu.Death[Arapahoe$Survival == "No" & Arapahoe$state == "SF"] <- NA
+Arapahoe$Natu.Death[Arapahoe$Survival == "No" & Arapahoe$state == "MF"] <- NA
+Arapahoe$Natu.Death[Arapahoe$Survival == "Yes"] <- 0
+
+FateYear.cor <- function(x){
+          D <- x
+          for(i in 1:length(x)){
+             {D[i] <- x[i]+ 1}
+            
+        }
+        return(D)
+}
+
+Arapahoe$Fate.Year <- FateYear.cor(Arapahoe$Year)
+##########################################################################################
+# define Survival
+Arapahoe$Survival[Arapahoe$Survival == "Yes"] <- 1
+Arapahoe$Survival[Arapahoe$Survival == "No"] <- 0
+
+#define emergence/dormancy
+Arapahoe$toIA = 0
+Arapahoe$toIA[Arapahoe$Fate =="inactive"]=1
+Arapahoe$toIA[Arapahoe$Survival == 0]=NA    #conditioned on Survival
+Arapahoe$toIA[Arapahoe$Fate =="not.tagged"]= NA
+
+# define MF
+Arapahoe$toMF = 0
+Arapahoe$toMF[Arapahoe$Fate == "MF"] = 1
+Arapahoe$toMF[Arapahoe$Survival == 0] = NA   #conditioned on Survival
+Arapahoe$toMF[Arapahoe$toIA == 1]=NA      #conditioned on not inactive
+Arapahoe$toMF[Arapahoe$Fate =="not.tagged"]= NA
+
+# define SF
+Arapahoe$toSF = 0
+Arapahoe$toSF[Arapahoe$Fate == "SF"] = 1
+Arapahoe$toSF[Arapahoe$Survival == 0] = NA   #conditioned on Survival
+Arapahoe$toSF[Arapahoe$toIA == 1]=NA      #conditioned on not inactive
+Arapahoe$toSF[Arapahoe$Fate =="not.tagged"]= NA
+
+#define MR plants
+Arapahoe$toMR=0
+Arapahoe$toMR[Arapahoe$Fate=="MR"]=1
+Arapahoe$toMR[Arapahoe$Survival==0]=NA #conditioned on survival
+Arapahoe$toMR[Arapahoe$toIA==1]=NA #condit on not being inactive
+Arapahoe$toMR[Arapahoe$toMF==1]=NA #condit on not multiple flowering
+Arapahoe$toMR[Arapahoe$toSF==1]=NA #condit on not Single flowering
+Arapahoe$toMR[Arapahoe$Fate =="not.tagged"]= NA
+
+#define single rosette, probability of being small or Large conditioned on survival, not flowering or not being inactive
+Arapahoe$toSR=NA
+Arapahoe$toSR[Arapahoe$Fate=="SR"]=1
+Arapahoe$toSR[Arapahoe$Fate=="MR"]=0
+Arapahoe$toSR[Arapahoe$Fate =="not.tagged"]= NA
+#######################################################
+Arapahoe$toF = 0
+Arapahoe$toF[Arapahoe$Fate == "MF"] = 1
+Arapahoe$toF[Arapahoe$Fate == "SF"] = 1
+Arapahoe$toF[Arapahoe$Survival == 0] = NA #conditioned on survival
+Arapahoe$toF[Arapahoe$toIA == 1]=NA
+Arapahoe$toF[Arapahoe$Fate =="not.tagged"]= NA
+```
+
+## Dormancy Vital Rate
+
+```{r}
+inactive.data = Arapahoe[Arapahoe$state == "inactive",]
+
+  
+IAsurv<-rep(1,19)   #survival for inactives is always 1!
+
+  # conditional flowering analysis for this stage class
+  m2 <- try(glmer(toSF ~ 1 +(1|Fate.Year), data=inactive.data, family=binomial(link="logit"), nAGQ = 10), T) #could not converge with random effect of year
+  B = try(coef(m2), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte2 = try(exp(fixef(m2))/(1+exp(fixef(m2))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte2 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m2) else allB[j] = allB[j] }
+IAtoSF<-allrte
+
+######################
+
+  # conditional dormancy analysis for this stage class
+  m3 <- try(glmer(toIA ~ 1 +(1|Fate.Year), data=inactive.data, family=binomial(link="logit"), nAGQ = 10), T)
+  B = try(coef(m3), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte3 = try(exp(fixef(m3))/(1+exp(fixef(m3))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte3 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m3) else allB[j] = allB[j] }
+    
+IAtoIA<-allrte
+
+
+  # prob of being "MR", conditional on being vegetative for this stage class
+  m4 <- try(glmer(toMR ~ 1 + (1|Fate.Year), data=inactive.data, family=binomial(link="logit"), nAGQ = 10), T)
+  B = try(coef(m4))
+  betas = try(B$Fate.Year,T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte4 = try(exp(fixef(m4))/(1+exp(fixef(m4))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte4 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m4) else allB[j] = allB[j] }
+IAtoMR <- allrte
+
+ m5 <- try(glmer(toSR ~ 1 + (1|Fate.Year), data=inactive.data, family=binomial(link="logit"), nAGQ = 10), T)
+  B = try(coef(m5))
+  betas = try(B$Fate.Year,T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte5 = try(exp(fixef(m5))/(1+exp(fixef(m5))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte5 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m5) else allB[j] = allB[j] }
+    
+IAtoSR<-allrte
+
+
+#IAtoSeedling<-rep(0,19)
+
+#IAtoSR1 <- 1 - (IAtoSF + IAtoMR + IAtoIA)
+
+
+```
+
+#### NB: The singularity error is expected because there is no enough variability in the random effect levels (i.e., lack of yeat-to-year variability). For this reason, the random effect estimate returns to a fixed a effect.
+
+## Single Rosette Vital Rate
+
+```{r}
+SR.data = Arapahoe[Arapahoe$state == "SR", ]
+SR.data$Survival <- as.numeric(SR.data$Survival)
+
+#########################SR Survival################################
+m6 <- try(glmer(Survival ~ 1 + (1|Fate.Year), data=SR.data, family=binomial(link="logit"),nAGQ = 10), T)   
+  B = try(coef(m6), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte6 = try(exp(fixef(m6))/(1+exp(fixef(m6))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte6 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m6) else allB[j] = allB[j] }
+SRsurv <- allrte
+#########################SR toMF################################
+  m7 <- try(glmer(toMF ~ 1 + (1|Fate.Year), data=SR.data, family=binomial(link="logit"),nAGQ = 20), T)   
+  B = try(coef(m7), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte7 = try(exp(fixef(m7))/(1+exp(fixef(m7))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte7 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m7) else allB[j] = allB[j] }
+SRtoMF <- allrte
+
+#########################SR to SF################################
+m8 <- try(glmer(toSF ~ 1 + (1|Fate.Year), data=SR.data, family=binomial(link="logit"), nAGQ = 10), T)   
+  B = try(coef(m8), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte8 = try(exp(fixef(m8))/(1+exp(fixef(m8))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte8 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m8) else allB[j] = allB[j] }
+SRtoSF<-allrte
+#########################SR to inactive################################
+m9 <- try(glmer(toIA ~ 1 + (1|Fate.Year), data=SR.data, family=binomial(link="logit"), nAGQ = 20), T)   
+  B = try(coef(m9), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte9 = try(exp(fixef(m9))/(1+exp(fixef(m9))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte9 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m9) else allB[j] = allB[j] }
+SRtoIA<-allrte
+
+#########################SR to MR################################
+m10 <- try(glmer(toMR ~ 1 + (1|Fate.Year), data=SR.data, family=binomial(link="logit"), nAGQ = 20), T)   
+  B = try(coef(m10), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte10 = try(exp(fixef(m10))/(1+exp(fixef(m10))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte10 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m10) else allB[j] = allB[j] }
+SRtoMR<-allrte
+
+#########################SR to SR################################
+m11 <- try(glmer(toSR ~ 1 + (1|Fate.Year), data=SR.data, family=binomial(link="logit"), nAGQ = 20), T)   
+  B = try(coef(m11), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte11 = try(exp(fixef(m11))/(1+exp(fixef(m11))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte11 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m11) else allB[j] = allB[j] }
+SRtoSR<-allrte
+
+
+#SRtoSR1 <- 1-(SRtoMR + SRtoSF + SRtoMF + SRtoIA)
+
+#SRtoSeedling <- rep(0,19)
+```
+
+## Multiple Rosette Vital Rate
+
+```{r}
+MR.data = Arapahoe[Arapahoe$state == "MR", ]
+MR.data$Survival <- as.numeric(MR.data$Survival)
+
+ # conditional dormancy analysis for this stage class
+  m12 <- try(glmer(Survival ~ 1 +(1|Fate.Year), data=MR.data, family=binomial(link="logit"), nAGQ = 20), T)
+  B = try(coef(m12), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte12 = try(exp(fixef(m12))/(1+exp(fixef(m12))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte12 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m12) else allB[j] = allB[j] }
+    
+MRsurv <- allrte
+
+
+ ##############################
+ m13 <- try(glmer(toIA ~ 1 +(1|Fate.Year), data=MR.data, family=binomial(link="logit"), nAGQ = 20), T)
+  B = try(coef(m13), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte13 = try(exp(fixef(m13))/(1+exp(fixef(m13))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte13 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m13) else allB[j] = allB[j] }
+    
+MRtoIA <- allrte
+###############################
+
+m14 <- try(glmer(toSF ~ 1 +(1|Fate.Year), data=MR.data, family=binomial(link="logit"),nAGQ = 20), T)
+  B = try(coef(m14), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte14 = try(exp(fixef(m14))/(1+exp(fixef(m14))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte14 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m14) else allB[j] = allB[j] }
+    
+MRtoSF <- allrte
+
+###############################
+
+m15 <- try(glmer(toMF ~ 1 +(1|Fate.Year), data=MR.data, family=binomial(link="logit"),nAGQ = 20), T)
+  B = try(coef(m15), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte15 = try(exp(fixef(m15))/(1+exp(fixef(m15))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte15 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m15) else allB[j] = allB[j] }
+    
+MRtoMF <- allrte
+
+###############################
+
+m16 <- try(glmer(toMR ~ 1 +(1|Fate.Year), data=MR.data, family=binomial(link="logit"),nAGQ = 20), T)
+  B = try(coef(m16), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte16 = try(exp(fixef(m16))/(1+exp(fixef(m16))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte16 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m16) else allB[j] = allB[j] }
+    
+MRtoMR <- allrte
+
+################################
+m17 <- try(glmer(toSR ~ 1 +(1|Fate.Year), data=MR.data, family=binomial(link="logit"), nAGQ = 20), T)
+  B = try(coef(m17), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte17 = try(exp(fixef(m17))/(1+exp(fixef(m17))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte17 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m17) else allB[j] = allB[j] }
+    
+MRtoSR <- allrte
+
+#MRtoSR1 <- 1 - (MRtoMR + MRtoSF + MRtoIA + MRtoMF) 
+
+#####
+#MRtoSeedling <- rep(0,19)
+```
+
+## Seedling vital Rate
+
+```{r}
+Seedling.data = Arapahoe[Arapahoe$state == "Seedling", ]
+Seedling.data$Survival <- as.numeric(Seedling.data$Survival)
+
+#######################
+m18 <- try(glmer(Survival ~ 1 +(1|Fate.Year), data=Seedling.data, family=binomial(link="logit"), nAGQ = 20), T)
+  B = try(coef(m18), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte18 = try(exp(fixef(m18))/(1+exp(fixef(m18))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte18 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m18) else allB[j] = allB[j] }
+    
+Seedlingsurv <- allrte
+
+#######################
+m19 <- try(glmer(toSR ~ 1 +(1|Fate.Year), data=Seedling.data, family=binomial(link="logit"), nAGQ = 10), T)
+  B = try(coef(m19), T)
+  betas = try(B$Fate.Year, T)
+  rte = try(exp(B$Fate.Year)/(1+exp(B$Fate.Year)),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1],
+               betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte19 = try(exp(fixef(m19))/(1+exp(fixef(m19))),T) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte19 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m19) else allB[j] = allB[j] }
+    
+#SeedlingtoSR <- allrte
+
+
+SeedlingtoSR <- rep(1,19)
+```
+
+## Prepare Data for Recruitment
+
+```{r}
+library(reshape2)
+Arapahoe1 <- rbind(UAA, UAB, UAC, UAD)
+Arapahoe1 <- Arapahoe1 %>% transform(Unique.RAMET = interaction(SITE, PLOT, RAMET))
+Arapahoe1 <- Arapahoe1 %>% relocate(c(Unique.RAMET), .after = RAMET)
+#Preparing Data for Survival and Stage analysis
+Arapahoe1.rec = dcast(Arapahoe1,  SITE+PLOT+RAMET+Unique.RAMET+stage.modified+Year ~ PrevStage, value.var = "PrevStage")#This code is to extract plant individuals that appeared for their first time.
+
+Arapahoe1.rec <- Arapahoe1.rec %>% select(SITE,PLOT, RAMET, Unique.RAMET, Year, stage.modified,  First.Appearance) %>% filter(First.Appearance == 1)
+
+Arapahoe1.rec <- dcast(Arapahoe1.rec,  PLOT+Year ~ stage.modified, value.var = "stage.modified") 
+
+Arapahoe1.rec <- Arapahoe1.rec %>% 
+  rowwise() %>% 
+  mutate(Flowering_rec = sum(MF, SF, na.rm = TRUE))
+
+#Arapahoe1.rec <- Arapahoe1.rec %>% select(PLOT, Year, MR, Seedling, SR, Flowering_rec)
+
+FateYear.cor <- function(x){
+          D <- x
+          for(i in 1:length(x)){
+             {D[i] <- x[i]+ 1}
+            
+        }
+        return(D)
+}
+
+Arapahoe1$Fate.Year <- FateYear.cor(Arapahoe1$Year)
+
+Arapahoe1 = dcast(Arapahoe1,  PLOT+Fate.Year ~ stage.modified, value.var = "stage.modified")%>% select(PLOT, Fate.Year, MF, SF, MR,  SR)
+
+Arapahoe1 <- Arapahoe1 %>% 
+  rowwise() %>% 
+  mutate(Flowering_t = sum(MF, SF, na.rm = TRUE))%>%
+  mutate(Rosette_t = sum(MR, SR, na.rm = TRUE))
+
+Arapahoe1 <- Arapahoe1 %>% select(PLOT, Fate.Year, Flowering_t, Rosette_t) %>% filter(Fate.Year != 2010)
+colnames(Arapahoe1) = c("PLOT","Year", "Flowering_t", "Rosette_t")
+
+Arapahoe1.rec <- cbind(Arapahoe1.rec, Flowering_t = Arapahoe1$Flowering_t, Rosette_t = Arapahoe1$Rosette_t)
+
+#(sum(Arapahoe1.rec$Flowering_rec)/sum(Arapahoe1.rec$Flowering_t))*100
+#Flowering_rec = 120
+#Total.F = 700
+#sum(MR.data$toMF, MR.data$toSF, na.rm = T) = 51
+#sum(SR.data$toMF, SR.data$toSF, na.rm = T) = 521
+#sum(inactive.data$toSF, na.rm = T) = 8
+
+#120/700
+
+```
+
+## Analysis for Recruitment
+
+```{r}
+m21 <-try(glmer(MR ~ 1 + offset(log(Rosette_t + 1)) + (1|Year), data = Arapahoe1.rec, family=poisson(link=log), nAGQ = 20),T)
+B = try(coef(m21), T)
+  betas = try(B$Year, T)
+  rte = try(exp(B$Year),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1], betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte21 = try(exp(fixef(m21))) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte21 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m21) else allB[j] = allB[j] }
+    
+MRrec <- allrte
+###########################################
+m22 <-try(glmer(SR ~ 1 + offset(log(Rosette_t + 1)) + (1|Year), data = Arapahoe1.rec, family=poisson(link=log), nAGQ = 10),T)
+B = try(coef(m22), T)
+  betas = try(B$Year, T)
+  rte = try(exp(B$Year),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1], betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte22 = try(exp(fixef(m22))) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte22 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m22) else allB[j] = allB[j] }
+    
+SRrec <- allrte
+
+###########################################
+m23 <- try(glmer(MF ~ 1 + offset(log(Rosette_t + 1)) + (1|Year), data = Arapahoe1.rec, family=poisson(link=log), nAGQ = 20),T)
+B = try(coef(m23), T)
+  betas = try(B$Year, T)
+  rte = try(exp(B$Year),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1], betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+     allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte23 = try(exp(fixef(m23))) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte23 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m23) else allB[j] = allB[j] }
+    
+MF_rec <- allrte
+
+###########################################
+m24 <- try(glmer(SF ~ 1 + offset(log(Rosette_t + 1)) + (1|Year), data = Arapahoe1.rec, family=poisson(link=log), nAGQ = 20),T)
+B = try(coef(m24), T)
+  betas = try(B$Year, T)
+  rte = try(exp(B$Year),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1], betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte24 = try(exp(fixef(m24))) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte24 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m24) else allB[j] = allB[j] }
+    
+SF_rec <- allrte
+
+###########################################
+m25 <- try(glmer(Seedling ~ 1 + offset(log(Flowering_t + 1)) + (1|Year), data = Arapahoe1.rec, family=poisson(link=log), nAGQ = 20), T)
+B = try(coef(m25), T)
+  betas = try(B$Year, T)
+  rte = try(exp(B$Year),T)  
+  allB = c(betas["1991",1], betas["1992",1], betas["1993",1], betas["1994",1], betas["1995",1], betas["1996",1], betas["1997",1], betas["1998",1], betas["1999",1],betas["2000",1], betas["2001",1], betas["2002",1], betas["2003",1], betas["2004",1], betas["2005",1], betas["2006",1], betas["2007",1], betas["2008",1], betas["2009",1])
+  allrte = c(rte["1991",1], rte["1992",1], rte["1993",1],rte["1994",1], rte["1995",1], rte["1996",1], rte["1997",1], rte["1998",1], rte["1999",1],rte["2000",1], rte["2001",1], rte["2002",1], rte["2003",1], rte["2004",1], rte["2005",1],rte["2006",1], rte["2007",1], rte["2008",1], rte["2009",1])
+    # for now, I am substituting missing values with the mean value
+    meanrte25 = try(exp(fixef(m25))) #mean back-transformed maximum likelihood  estimate across years
+    for(j in 1:length(allrte)) {if(is.na(allrte[j]) == TRUE) allrte[j] = meanrte25 else allrte[j] = allrte[j] }
+    for(j in 1:length(allB)) {if(is.na(allB[j]) == TRUE) allB[j] = fixef(m25) else allB[j] = allB[j] }
+    
+Seedling_rec <- allrte
+
+  
+```
+
+## Prepare vital rates data
+
+```{r}
+##########################################
+IAsurv<-as.matrix(IAsurv)
+IAtoSF<-as.matrix(IAtoSF)
+#IAtoMF<-as.matrix(IAtoMF)
+IAtoIA<-as.matrix(IAtoIA)
+IAtoMR<-as.matrix(IAtoMR)
+IAtoSR <-as.matrix(IAtoSR)
+SRsurv <- as.matrix(SRsurv)
+SRtoIA<-as.matrix(SRtoIA)
+SRtoSF<-as.matrix(SRtoSF)
+SRtoMF<-as.matrix(SRtoMF)
+SRtoMR<-as.matrix(SRtoMR)
+SRtoSR <-as.matrix(SRtoSR)
+MRsurv<-as.matrix(MRsurv)
+MRtoSF<-as.matrix(MRtoSF)
+MRtoSF<-as.matrix(MRtoSF)
+MRtoIA<-as.matrix(MRtoIA) 
+MRtoMR<-as.matrix(MRtoMR)
+MRtoSR <-as.matrix(MRtoSR)
+Seedlingsurv<-as.matrix(Seedlingsurv)
+SeedlingtoSR<-as.matrix(SeedlingtoSR)
+MR_rec <- as.matrix(MRrec)
+SR_rec <- as.matrix(SRrec)
+SF_rec <- as.matrix(SF_rec)
+MF_rec <- as.matrix(MF_rec)
+Seedling_rec <- as.matrix(Seedling_rec)
+
+VR_Arapahoe <- cbind(IAsurv, IAtoSF, IAtoIA, IAtoMR, IAtoSR, SRsurv, SRtoIA, SRtoSF, SRtoMF, SRtoMR, SRtoSR, MRsurv, MRtoSF, MRtoMF, MRtoIA, MRtoMR, MRtoSR, Seedlingsurv, SeedlingtoSR, MRrec, SRrec, SF_rec, MF_rec, Seedling_rec)
+round(VR_Arapahoe, digits = 3)
+
+Year <- 1991:2009
+
+VR_Arapahoe <- cbind(Year, VR_Arapahoe)
+
+colnames(VR_Arapahoe) <- c("Year","IAsurv", "IAtoSF", "IAtoIA", "IAtoMR", "IAtoSR", "SRsurv", "SRtoIA", "SRtoSF","SRtoMF", "SRtoMR", "SRtoSR", "MRsurv", "MRtoSF","MRtoMF", "MRtoIA", "MRtoMR", "MRtoSR", "Seedlingsurv", "SeedlingtoSR", "MR_rec", "SR_rec", "SF_rec","MF_rec", "Seedling_rec")
+
+VR_Arapahoe <- data.frame(VR_Arapahoe)
+
+#write.csv(VR_Arapahoe, "VR_Arapahoe.csv")
+
+
+```
+
+## Synthesizing vital rates to calculate Asymptotic Population growth rate (i.e., Matrix Population Model, MPM)
+
+```{r}
+library(popbio)
+library(popdemo)
+
+#for loop from the first year to the last year to construct matrices
+
+tmax=dim(VR_Arapahoe)[1]    #estimates from 19 years
+elements=36   #No. matrix elements
+
+matrices.Arapahoe<-matrix(nrow=elements, ncol=tmax);  #A matrix to collect all matrices
+
+
+for (i in 1:tmax){
+##############################
+ mat5 <- matrix(c(
+  ##To Seedling
+  0, 
+  0, 
+ (VR_Arapahoe[i, "Seedling_rec"])*0.9, # From flowering single rosette to Seedlings 
+  0, 
+  (VR_Arapahoe[i, "Seedling_rec"])*0.1, # From flowering multiple rosette to Seedlings 
+  0,
+  
+  ##To SR
+  VR_Arapahoe[i, "Seedlingsurv"]*VR_Arapahoe[i, "SeedlingtoSR"], # From Seedlings to SR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.9), # From SR to SR
+  0, # From SF to SR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.1), # From MR to SR
+  0, # From MF to SR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSR"], # From D to SR
+  
+  ## To SF
+  0, # From Seedling to SF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.9), #From SR to SF
+  0, # From SF to SF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.1), # From MR to SF
+  0, # From MF to SF
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSF"], # From D to SF
+  
+  ## To MR
+  0, # From Seedling to MR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.9, # From SR to MR
+  0, # From SF to MR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.1, # From MR to MR
+  0, # From MF to MR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoMR"], # From D to MR
+  
+  ## To MF
+  0, # From Seedling to MF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.9, # From SR to MF
+  0, # From SF to MF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.1, # From MR to MF
+  0, # From MF to MF
+  0, # From D to MF
+  
+  ## To inactive
+  0, # From Seedling to D
+  VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoIA"], # From SR to D
+  0, # From SF to D
+  VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoIA"], # From MR to D
+  0, # From MF to D
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoIA"] # From D to D
+),  nrow=6, byrow = F) 
+
+matrices.Arapahoe[,i]<-as.vector(mat5)
+
+colnames(matrices.Arapahoe) = c("1991","1992","1993","1994","1995","1996","1997","1998","1999","2000","2001", "2002", "2003", "2004", "2005", "2006", "2007", "2008", "2009")
+
+}
+
+```
+
+### Calculate lambda for each year
+
+```{r}
+column1<-matrices.Arapahoe[,1]  #extract a column
+lambda_1991<-matrix((column1), nrow=6) #reshape to a matrix
+lambda(lambda_1991)
+colSums(lambda_1991)
+eigs(lambda_1991)
+
+#####################
+column2<-matrices.Arapahoe[,2]  #extract a column
+lambda_1992<-matrix((column2), nrow=6) #reshape to a matrix
+lambda(lambda_1992)
+colSums(lambda_1992)
+eigs(lambda_1992)
+
+##################
+column3<-matrices.Arapahoe[,3]  #extract a column
+lambda_1993<-matrix((column3), nrow=6) #reshape to a matrix
+lambda(lambda_1993)
+colSums(lambda_1993)
+eigs(lambda_1993)
+
+##################
+column4<-matrices.Arapahoe[,4]  #extract a column
+lambda_1994<-matrix((column4), nrow=6) #reshape to a matrix
+lambda(lambda_1994)
+colSums(lambda_1994)
+eigs(lambda_1994)
+
+##################
+column5<-matrices.Arapahoe[,5]  #extract a column
+lambda_1995<-matrix((column5), nrow=6) #reshape to a matrix
+lambda(lambda_1995)
+colSums(lambda_1995)
+eigs(lambda_1995)
+
+##################
+column6<-matrices.Arapahoe[,6]  #extract a column
+lambda_1996<-matrix((column6), nrow=6) #reshape to a matrix
+lambda(lambda_1996)
+colSums(lambda_1996)
+eigs(lambda_1996)
+
+##################
+column7<-matrices.Arapahoe[,7]  #extract a column
+lambda_1997<-matrix((column7), nrow=6) #reshape to a matrix
+lambda(lambda_1997)
+colSums(lambda_1997)
+eigs(lambda_1997)
+
+##################
+column8<-matrices.Arapahoe[,8]  #extract a column
+lambda_1998<-matrix((column8), nrow=6) #reshape to a matrix
+lambda(lambda_1998)
+colSums(lambda_1998)
+eigs(lambda_1998)
+
+##################
+column9<-matrices.Arapahoe[,9]  #extract a column
+lambda_1999<-matrix((column9), nrow=6) #reshape to a matrix
+lambda(lambda_1999)
+colSums(lambda_1999)
+eigs(lambda_1999)
+
+##################
+column10<-matrices.Arapahoe[,10]  #extract a column
+lambda_2000<-matrix((column10), nrow=6) #reshape to a matrix
+lambda(lambda_2000)
+colSums(lambda_2000)
+eigs(lambda_2000)
+
+##################
+column11<-matrices.Arapahoe[,11]  #extract a column
+lambda_2001<-matrix((column11), nrow=6) #reshape to a matrix
+lambda(lambda_2001)
+colSums(lambda_2001)
+eigs(lambda_2001)
+
+##################
+column12<-matrices.Arapahoe[,12]  #extract a column
+lambda_2002<-matrix((column12), nrow=6) #reshape to a matrix
+lambda(lambda_2002)
+colSums(lambda_2002)
+eigs(lambda_2002)
+
+##################
+column13<-matrices.Arapahoe[,13]  #extract a column
+lambda_2003<-matrix((column13), nrow=6) #reshape to a matrix
+lambda(lambda_2003)
+colSums(lambda_2003)
+eigs(lambda_2003)
+
+##################
+column14<-matrices.Arapahoe[,14]  #extract a column
+lambda_2004<-matrix((column14), nrow=6) #reshape to a matrix
+lambda(lambda_2004)
+colSums(lambda_2004)
+eigs(lambda_2004)
+
+##################
+column15<-matrices.Arapahoe[,15]  #extract a column
+lambda_2005<-matrix((column15), nrow=6) #reshape to a matrix
+lambda(lambda_2005)
+colSums(lambda_2005)
+eigs(lambda_2005)
+
+##################
+column16<-matrices.Arapahoe[,16]  #extract a column
+lambda_2006<-matrix((column16), nrow=6) #reshape to a matrix
+lambda(lambda_2006)
+colSums(lambda_2006)
+eigs(lambda_2006)
+
+##################
+column17<-matrices.Arapahoe[,17]  #extract a column
+lambda_2007<-matrix((column17), nrow=6) #reshape to a matrix
+lambda(lambda_2007)
+colSums(lambda_2007)
+eigs(lambda_2007)
+
+##################
+column18<-matrices.Arapahoe[,18]  #extract a column
+lambda_2008<-matrix((column18), nrow=6) #reshape to a matrix
+lambda(lambda_2008)
+colSums(lambda_2008)
+eigs(lambda_2008)
+
+##################
+column19<-matrices.Arapahoe[,19]  #extract a column
+lambda_2009<-matrix((column19), nrow=6) #reshape to a matrix
+lambda(lambda_2009)
+colSums(lambda_2009)
+eigs(lambda_2009)
+
+
+Lambda_Arapahoe <- c(lambda(lambda_1991), lambda(lambda_1992), lambda(lambda_1993), lambda(lambda_1994), lambda(lambda_1995), lambda(lambda_1996), lambda(lambda_1997), lambda(lambda_1998), lambda(lambda_1999), lambda(lambda_2000), lambda(lambda_2001), lambda(lambda_2002), lambda(lambda_2003), lambda(lambda_2004), lambda(lambda_2005), lambda(lambda_2006), lambda(lambda_2007), lambda(lambda_2008), lambda(lambda_2009))
+
+Year <- as_tibble(1991:2009)
+
+
+data.frame(Lambda_Arapahoe <- cbind(Year, Lambda_Arapahoe))
+
+
+```
+
+```{r}
+
+Arapaho_wet.matrix <- matrices.Arapahoe[, c("1991", "1992", "1993", "1995", "1997", "1998", "1999", "2004", "2005", "2006", "2008", "2009")] ## Select population matrices that fall in wet years
+
+Arapaho_dry.matrix <- matrices.Arapahoe[, c("1994", "1996", "2000", "2001", "2002", "2003", "2007")] ## Select population matrices that fall in dry years
+
+
+Arap.wet <- list(lambda_1991,lambda_1992,lambda_1993,lambda_1995,lambda_1997,lambda_1998,lambda_1999, lambda_2004, lambda_2005, lambda_2006, lambda_2008, lambda_2009)
+
+Arap.dry <- list(lambda_1994,lambda_1996,lambda_2000,lambda_2001, lambda_2002, lambda_2003,  lambda_2007)
+
+
+# Step 2: Combine the matrices into a 3D array
+Arap.wet_array <- array(unlist(Arap.wet), dim = c(6, 6, 12))
+Arap.dry_array <- array(unlist(Arap.dry), dim = c(6, 6, 7))
+
+# Step 3: Calculate the mean across all matrices (element-wise)
+mean_Arap.wet <- apply(Arap.wet_array, c(1, 2), mean)
+mean_Arap.dry <- apply(Arap.dry_array, c(1, 2), mean)
+
+
+
+```
+
+## Compare Transient Pop growth to Asymptotic Pop growth (Figure 5)
+
+```{r}
+##################################################
+Stage.data <- read.csv("Stage.data.csv")
+
+Stage.data.Arapahoe <- Stage.data %>% filter(Site == "Arapaho")
+
+Stage.data.Arapahoe <- Stage.data.Arapahoe %>% group_by(Year) %>% summarise(Total = sum(Total))
+
+
+Stage.data.Arapahoe = Stage.data.Arapahoe %>%
+  # first sort by year
+  arrange(Year) %>%
+  mutate(Pop_Diff = Total - lag(Total), # Difference in Population between years
+         Growth.rate = Pop_Diff/lag(Total),
+         Relative.change = Total/lag(Total),
+         lamnda = exp(Growth.rate)) # growth rate 
+
+
+Stage.data.Arapahoe <- Stage.data.Arapahoe %>% filter(!Year == 1990)
+Lambda_Arapahoe$Site <- "Arapaho"
+
+
+ggplot(Lambda_Arapahoe) + geom_point(aes(x=value, y=Lambda_Arapahoe, color = '#56B4E9')) + geom_line(aes(x=value, y=Lambda_Arapahoe, color = '#56B4E9')) + geom_hline(yintercept=1, linetype="dashed", color = "black") + geom_line(aes(x=Stage.data.Arapahoe$Year, y=Stage.data.Arapahoe$Relative.change, color = '#E69F00')) + geom_point(aes(x=Stage.data.Arapahoe$Year, y=Stage.data.Arapahoe$Relative.change, color = '#E69F00')) + theme_bw() + ylab("Population growth rate") + xlab("Year") + 
+  scale_color_identity(name='Population Growth Rate Model',
+                     breaks = c('#56B4E9', "#E69F00"),
+                     labels=c("Asymptotic Growth Rate", 'Transient Growth Rate'),
+                     guide = 'legend') + facet_wrap(~Site)
+
+mean(Stage.data.Arapahoe$lamnda)  
+
+App.datL <- cbind(Lambda_Arapahoe, Transient = Stage.data.Arapahoe$Relative.change)
+
+write.csv(App.datL, "App.datL.csv")
+
+#ggplot(Stage.data.Arapahoe, mapping = aes(x=Year, y=Total)) + geom_point() + geom_line() 
+
+write.csv(Lambda_Arapahoe, "Lambda_Arapahoe.csv")
+
+sd(Stage.data.Arapahoe$lamnda)/sqrt(length(Stage.data.Arapahoe$lamnda))
+mean(Stage.data.Arapahoe$lamnda)
+
+Stage.data %>% filter(Site == "Arapaho") %>% group_by(Year) %>% 
+  summarise(Total = sum(Total),
+            Recruitment1 = sum(Recruitment),
+            Seedling1 = sum(Seedling),
+            rec = Recruitment1 - Seedling1)
+
+(459-189)/459
+```
+
+## Plot vital rates
+
+```{r}
+VR_Arapahoe1 <- pivot_longer(VR_Arapahoe, 2:24, names_to = "VR", values_to = "Estimate")
+
+ggplot(VR_Arapahoe1, mapping = aes(x=Year, y=Estimate)) + geom_line() + geom_point() + facet_wrap(~VR) + theme_bw()
+```
+
+### **Predicting ramet population dynamics under different drought frequency scenarios (Figure 8)**
+
+```{r}
+mat_elements <- expression(
+  ##To Seedling
+  0, 
+  0, 
+  Seedling_rec*0.9, # From flowering single rosette to Seedlings 
+  0, 
+  Seedling_rec*0.1, # From flowering multiple rosette to Seedlings 
+  0,
+  
+  ##To SR
+  Seedlingsurv*SeedlingtoSR, # From Seedlings to SR
+  (SRsurv*SRtoSR) + (SR_rec*0.9), # From SR to SR
+  0, # From SF to SR
+  (MRsurv*MRtoSR) + (SR_rec*0.1), # From MR to SR
+  0, # From MF to SR
+  IAsurv*IAtoSR, # From D to SR
+  
+  ## To SF
+  0, # From Seedling to SF
+  (SRsurv*SRtoSF) + (SF_rec*0.9), #From SR to SF
+  0, # From SF to SF
+  (MRsurv*MRtoSF) + (SF_rec*0.1), # From MR to SF
+  0, # From MF to SF
+  IAsurv*IAtoSF, # From D to SF
+  
+  ## To MR
+  0, # From Seedling to MR
+  (SRsurv*SRtoMR + MR_rec*0.9), # From SR to MR
+  0, # From SF to MR
+  (MRsurv * MRtoMR) + (MR_rec *0.1), # From MR to MR
+  0, # From MF to MR
+  IAsurv*IAtoMR, # From D to MR
+  
+  ## To MF
+  0, # From Seedling to MF
+  (SRsurv*SRtoMF) + (MF_rec*0.9), # From SR to MF
+  0, # From SF to MF
+  (MRsurv*MRtoMF) + (MF_rec*0.1), # From MR to MF
+  0, # From MF to MF
+  0, # From D to MF
+  
+  ## To inactive
+  0, # From Seedling to D
+  SRsurv*SRtoIA, # From SR to D
+  0, # From SF to D
+  MRsurv*MRtoIA, # From MR to D
+  0, # From MF to D
+  IAsurv*IAtoIA # From D to D
+)
+
+
+Mean_Arapaho <- colMeans(VR_Arapahoe[2:25])
+
+theta_Arapaho = list(IAsurv=Mean_Arapaho[1], IAtoSF=Mean_Arapaho[2], IAtoIA=Mean_Arapaho[3],
+                 IAtoMR =Mean_Arapaho[4],IAtoSR=Mean_Arapaho[5], SRsurv=Mean_Arapaho[6], 
+                 SRtoIA=Mean_Arapaho[7], SRtoSF=Mean_Arapaho[8], SRtoMF=Mean_Arapaho[9], 
+                 SRtoMR=Mean_Arapaho[10], SRtoSR=Mean_Arapaho[11], MRsurv=Mean_Arapaho[12],
+                 MRtoSF=Mean_Arapaho[13], MRtoMF=Mean_Arapaho[14], MRtoIA=Mean_Arapaho[15], 
+                 MRtoMR=Mean_Arapaho[16], MRtoSR=Mean_Arapaho[17], Seedlingsurv=Mean_Arapaho[18], SeedlingtoSR=Mean_Arapaho[19], MR_rec=Mean_Arapaho[20], SR_rec=Mean_Arapaho[21], SF_rec=Mean_Arapaho[22], MF_rec=Mean_Arapaho[23], Seedling_rec=Mean_Arapaho[24])
+
+Amn_Arapaho <- matrix(sapply(mat_elements,eval,theta_Arapaho), 6,6, byrow=F)
+
+stage.names <- c("Seedling", "SR", "SF", "MR", "MF", "Inactive")
+SSD <- eigs(Amn_Arapaho)$ss
+SSD <- data.frame(SSD)
+
+rownames(SSD) <- stage.names 
+#SSD%>% tibble::rownames_to_column("Stage") %>% ggplot(aes(x=Stage, y=SSD, fill = Stage)) + geom_bar(position="stack", stat="identity") + theme_bw()
+
+#######################################################################
+
+SSD.A <- SSD %>% rownames_to_column(var="Stages") %>% ggplot(aes(x=factor(Stages, levels=c("Seedling", "SR","MR","SF","MF","Inactive")), y=SSD)) + geom_bar(stat = "identity", aes(fill = Stages), show.legend = FALSE) + ylab("Stable Stage Distribution") + scale_fill_viridis_d() + xlab("Stages") + theme_bw() + ggtitle(" Arapaho") + theme(text = element_text(size = 15),
+        strip.text = element_text(size=15))
+
+```
+
+```{r}
+SSD.mat <- matrix(c(
+  ##To Seedling
+  0, 
+  0, 
+ (VR_Arapahoe[i, "Seedling_rec"])*0.9, # From flowering single rosette to Seedlings 
+  0, 
+  (VR_Arapahoe[i, "Seedling_rec"])*0.1, # From flowering multiple rosette to Seedlings 
+  0,
+  
+  ##To SR
+  VR_Arapahoe[i, "Seedlingsurv"]*VR_Arapahoe[i, "SeedlingtoSR"], # From Seedlings to SR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.9), # From SR to SR
+  0, # From SF to SR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.1), # From MR to SR
+  0, # From MF to SR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSR"], # From D to SR
+  
+  ## To SF
+  0, # From Seedling to SF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.9), #From SR to SF
+  0, # From SF to SF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.1), # From MR to SF
+  0, # From MF to SF
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSF"], # From D to SF
+  
+  ## To MR
+  0, # From Seedling to MR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.9, # From SR to MR
+  0, # From SF to MR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.1, # From MR to MR
+  0, # From MF to MR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoMR"], # From D to MR
+  
+  ## To MF
+  0, # From Seedling to MF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.9, # From SR to MF
+  0, # From SF to MF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.1, # From MR to MF
+  0, # From MF to MF
+  0, # From D to MF
+  
+  ## To inactive
+  0, # From Seedling to D
+  VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoIA"], # From SR to D
+  0, # From SF to D
+  VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoIA"], # From MR to D
+  0, # From MF to D
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoIA"] # From D to D
+),  nrow=6, byrow = F)  
+
+eigs(SSD.mat)$ss
+
+stage.names <- c("Seedling", "SR", "SF", "MR", "MF", "Inactive")
+SSD <- eigs(SSD.mat)$ss
+SSD <- data.frame(SSD)
+
+rownames(SSD) <- stage.names 
+#SSD%>% tibble::rownames_to_column("Stage") %>% ggplot(aes(x=Stage, y=SSD, fill = Stage)) + geom_bar(position="stack", stat="identity") + theme_bw()
+
+#######################################################################
+
+SSD.A <- SSD %>% rownames_to_column(var="Stages") %>% ggplot(aes(x=factor(Stages, levels=c("Seedling", "SR","MR","SF","MF","Inactive")), y=SSD)) + geom_bar(stat = "identity", aes(fill = Stages), show.legend = FALSE) + ylab("Stable Stage Distribution") + scale_fill_viridis_d() + xlab("Stages") + theme_bw() + ggtitle(" Arapaho") + theme(text = element_text(size = 15),
+        strip.text = element_text(size=15))
+
+#matrices.Arapahoe
+```
+
+```{r}
+###################################################################################################
+spei.data <- read.csv("Lag.spei_data.csv") # load in spei weather data
+Arapaho.spei <- spei.data %>% filter(Site == "Arapaho") # we need only Niobrara data
+Arapaho.spei$X <- NULL # not needed
+
+
+## calculate the mean spei for the last 18 months to represent the mean annual spei. This approach is chosen because the effect of spei on lambda was found to have equal time-lag effect.
+Arapaho.spei <- Arapaho.spei %>%
+rowwise() %>% 
+  mutate(mean.spei = mean(spei.00:spei.12)) 
+
+######### Select years of wetter-than-normal conditions
+Arapaho_wet.yrs <- Arapaho.spei %>% filter(mean.spei >0)
+Arapaho_dry.yrs <- Arapaho.spei %>% filter(mean.spei <0)
+
+unique(Arapaho_wet.yrs$Year) ## extract wet years
+unique(Arapaho_dry.yrs$Year) ## extract dry years
+
+Arapaho_wet.matrix <- matrices.Arapahoe[, c("1991", "1992", "1993", "1995", "1997", "1998", "1999", "2004", "2005", "2006", "2008", "2009")] ## Select population matrices that fall in wet years
+
+Arapaho_dry.matrix <- matrices.Arapahoe[, c("1994", "1996", "2000", "2001", "2002", "2003", "2007")] ## Select population matrices that fall in dry years
+
+
+##################################################################
+
+SimTime=50 ## how many year in the future to project model
+p1=0.9 # probability of a bad year occurring (more drier condtitions)
+#p2=0.7 # probability of a bad year occurring 
+p3=0.5
+#p4=0.3
+p5=0.1# probability of a bad year occurring (less drier condtions)
+N_start=50 # initial number of indiviudals in each stage (arbitrary choice)
+
+SSD1 <- eigs(SSD.mat)$ss
+
+
+
+#starting population close to stable stage distribution
+Ini.pop = SSD1*N_start
+
+#SSD <- eigs(Amn_Arapaho)$ss
+#Ini.pop = SSD*N_start
+#mean.Ini.pop = c(Sd=mean(Ini.pop$Sd), SR=mean(Ini.pop$SR), SF=mean(Ini.pop$SF), MR=mean(Ini.pop$MR), MF=mean(Ini.pop$MF), IA=mean(Ini.pop$IA))
+##
+
+
+
+```
+
+## Make projection for future drought scenarios
+
+```{r}
+
+set.seed(54630)
+############################### Set P at 0.9#############################
+Result=data.frame(Time=1:SimTime, 
+                  Sd=c(Ini.pop[1], rep(0,SimTime-1)),
+                  SR=c(Ini.pop[2], rep(0,SimTime-1)),
+                  SF=c(Ini.pop[3], rep(0,SimTime-1)),
+                  MR=c(Ini.pop[4], rep(0,SimTime-1)),
+                  MF=c(Ini.pop[5], rep(0,SimTime-1)),
+                  IA=c(Ini.pop[6], rep(0,SimTime-1)))
+                 
+Sim.Mat <- matrix(NA, nrow = 50, ncol = 1000)
+Sim.mean.Pop <- matrix(NA, nrow = 50, ncol = 3)
+colnames(Sim.mean.Pop) <- c("Median", "Lower", "Upper")
+
+for(i in 1:1000){
+for (t in 2:SimTime){
+  if(runif(n=1,min=0,max=1) < p1) {
+    dum=project(matrix(Arapaho_dry.matrix[, sample(1:ncol(Arapaho_dry.matrix), 1)], nrow=6), 
+               c(Result$Sd[t-1], Result$SR[t-1], Result$SF[t-1], 
+                 Result$MR[t-1], Result$MF[t-1], Result$IA[t-1]), time = 1)
+  } else {dum=project(matrix(Arapaho_wet.matrix[, sample(1:ncol(Arapaho_wet.matrix), 1)], nrow = 6), 
+               c(Result$Sd[t-1], Result$SR[t-1], Result$SF[t-1], 
+                 Result$MR[t-1], Result$MF[t-1], Result$IA[t-1]), time = 1)}
+  
+   Result$Sd[t]=vec(dum)[2,1]
+   Result$SR[t]=vec(dum)[2,2]
+   Result$SF[t]=vec(dum)[2,3]
+   Result$MR[t]=vec(dum)[2,4]
+   Result$MF[t]=vec(dum)[2,5]
+   Result$IA[t]=vec(dum)[2,6]
+   
+   Pop.est=rowSums(Result[, 2:7])
+}
+Sim.Mat[, i] <- Pop.est
+
+}
+
+for (t in 1:SimTime){
+  Sim.mean.Pop[t, 1] <- Sim.Mat[t, ] %>% median()
+  Sim.mean.Pop[t, 2] <- quantile(Sim.Mat[t, ], probs=c(.05,.95), type = 8)[1] 
+  Sim.mean.Pop[t, 3] <- quantile(Sim.Mat[t, ], probs=c(.05,.95), type = 8)[2] 
+}
+
+Sim.mean.Pop1 <- data.frame(Sim.mean.Pop)
+
+Sim.mean.Pop1$Time <- 1:50
+
+ggplot(Sim.mean.Pop1, mapping = aes(x=Time, y=Median)) + 
+  geom_ribbon(aes(ymin=Lower, ymax=Upper),
+              alpha=0.5) +
+    geom_line()
+
+
+
+############################### Set P at 0.5#############################
+Result.p3=data.frame(Time=1:SimTime, 
+                  Sd=c(Ini.pop[1], rep(0,SimTime-1)),
+                  SR=c(Ini.pop[2], rep(0,SimTime-1)),
+                  SF=c(Ini.pop[3], rep(0,SimTime-1)),
+                  MR=c(Ini.pop[4], rep(0,SimTime-1)),
+                  MF=c(Ini.pop[5], rep(0,SimTime-1)),
+                  IA=c(Ini.pop[6], rep(0,SimTime-1)))
+                 
+
+Sim.Mat_p3 <- matrix(NA, nrow = 50, ncol = 1000)
+Sim.mean.Pop_p3 <- matrix(NA, nrow = 50, ncol = 3)
+colnames(Sim.mean.Pop_p3) <- c("Median", "Lower", "Upper")
+
+for(i in 1:1000){
+for (t in 2:SimTime){
+  if(runif(n=1,min=0,max=1) < p3) {
+    dum=project(matrix(Arapaho_dry.matrix[, sample(1:ncol(Arapaho_dry.matrix), 1)], nrow=6), 
+               c(Result.p3$Sd[t-1], Result.p3$SR[t-1], Result.p3$SF[t-1], 
+                 Result.p3$MR[t-1], Result.p3$MF[t-1], Result.p3$IA[t-1]), time = 1)
+  } else {dum=project(matrix(Arapaho_wet.matrix[, sample(1:ncol(Arapaho_wet.matrix), 1)], nrow = 6), 
+               c(Result.p3$Sd[t-1], Result.p3$SR[t-1], Result.p3$SF[t-1], 
+                 Result.p3$MR[t-1], Result.p3$MF[t-1], Result.p3$IA[t-1]), time = 1)}
+  
+   Result.p3$Sd[t]=vec(dum)[2,1]
+   Result.p3$SR[t]=vec(dum)[2,2]
+   Result.p3$SF[t]=vec(dum)[2,3]
+   Result.p3$MR[t]=vec(dum)[2,4]
+   Result.p3$MF[t]=vec(dum)[2,5]
+   Result.p3$IA[t]=vec(dum)[2,6]
+   
+   Pop.est_p3=rowSums(Result.p3[, 2:7])
+}
+Sim.Mat_p3[, i] <- Pop.est_p3
+
+}
+
+for (t in 1:SimTime){
+  Sim.mean.Pop_p3[t, 1] <- Sim.Mat_p3[t, ] %>% median()
+  Sim.mean.Pop_p3[t, 2] <- quantile(Sim.Mat_p3[t, ], probs=c(.05,.95), type = 8)[1]
+  Sim.mean.Pop_p3[t, 3] <- quantile(Sim.Mat_p3[t, ], probs=c(.05,.95), type = 8)[2]
+}
+
+Sim.mean.Pop1_p3 <- data.frame(Sim.mean.Pop_p3)
+
+Sim.mean.Pop1_p3$Time <- 1:50
+
+ggplot(Sim.mean.Pop1_p3, mapping = aes(x=Time, y=Median)) + 
+  geom_ribbon(aes(ymin=Lower, ymax=Upper),
+              alpha=0.5) +
+    geom_line()
+
+
+############################### Set P at 0.1#############################
+Result.p5=data.frame(Time=1:SimTime, 
+                  Sd=c(Ini.pop[1], rep(0,SimTime-1)),
+                  SR=c(Ini.pop[2], rep(0,SimTime-1)),
+                  SF=c(Ini.pop[3], rep(0,SimTime-1)),
+                  MR=c(Ini.pop[4], rep(0,SimTime-1)),
+                  MF=c(Ini.pop[5], rep(0,SimTime-1)),
+                  IA=c(Ini.pop[6], rep(0,SimTime-1)))
+                 
+Sim.Mat_p5 <- matrix(NA, nrow = 50, ncol = 1000)
+Sim.mean.Pop_p5 <- matrix(NA, nrow = 50, ncol = 3)
+colnames(Sim.mean.Pop_p5) <- c("Median", "Lower", "Upper")
+
+for(i in 1:1000){
+for (t in 2:SimTime){
+  if(runif(n=1,min=0,max=1) < p5) {
+    dum=project(matrix(Arapaho_dry.matrix[, sample(1:ncol(Arapaho_dry.matrix), 1)], nrow=6), 
+               c(Result.p5$Sd[t-1], Result.p5$SR[t-1], Result.p5$SF[t-1], 
+                 Result.p5$MR[t-1], Result.p5$MF[t-1], Result.p5$IA[t-1]), time = 1)
+  } else {dum=project(matrix(Arapaho_wet.matrix[, sample(1:ncol(Arapaho_wet.matrix), 1)], nrow = 6), 
+               c(Result.p5$Sd[t-1], Result.p5$SR[t-1], Result.p5$SF[t-1], 
+                 Result.p5$MR[t-1], Result.p5$MF[t-1], Result.p5$IA[t-1]), time = 1)}
+  
+   Result.p5$Sd[t]=vec(dum)[2,1]
+   Result.p5$SR[t]=vec(dum)[2,2]
+   Result.p5$SF[t]=vec(dum)[2,3]
+   Result.p5$MR[t]=vec(dum)[2,4]
+   Result.p5$MF[t]=vec(dum)[2,5]
+   Result.p5$IA[t]=vec(dum)[2,6]
+   
+   Pop.est_p5=rowSums(Result.p5[, 2:7])
+}
+Sim.Mat_p5[, i] <- Pop.est_p5
+
+}
+
+for (t in 1:SimTime){
+  Sim.mean.Pop_p5[t, 1] <- Sim.Mat_p5[t, ] %>% median()
+  Sim.mean.Pop_p5[t, 2] <- quantile(Sim.Mat_p5[t, ], probs=c(.05,.95), type = 8)[1]
+  Sim.mean.Pop_p5[t, 3] <- quantile(Sim.Mat_p5[t, ], probs=c(.05,.95), type = 8)[2]
+}
+
+Sim.mean.Pop1_p5 <- data.frame(Sim.mean.Pop_p5)
+
+Sim.mean.Pop1_p5$Time <- 1:50
+
+ggplot(Sim.mean.Pop1_p5, mapping = aes(x=Time, y=Median)) + 
+  geom_ribbon(aes(ymin=Lower, ymax=Upper),
+              alpha=0.5) +
+    geom_line()
+##############################################################################
+Sim.mean.Pop1_p5$Level <- "Low"
+Sim.mean.Pop1_p3$Level <- "No Change"
+Sim.mean.Pop1$Level <- "High"
+
+Pred.Arapaho <- rbind(Sim.mean.Pop1_p5, Sim.mean.Pop1_p3, Sim.mean.Pop1)
+
+Pred.Arapaho$Levels <- factor(Pred.Arapaho$Level, levels = c("Low", "No Change", "High"))
+
+P.A <- ggplot(Pred.Arapaho, mapping = aes(x=Time, y=log(Median), fill = Levels, col = Levels)) + 
+  geom_ribbon(aes(ymin=log(Lower), ymax=log(Upper)), linetype = 2,
+              alpha=0.5) +
+    geom_line() + theme_bw() + ylab("log(Predicted population)") + theme(legend.position = "top") + guides(fill=guide_legend("Drought Frequency"), col=guide_legend("Drought Frequency")) +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) + ggtitle("Arapaho") + scale_color_manual(values=c("#009E73",'#B0E647', '#E74739') )+ scale_fill_manual(values=c("#009E73",'#B0E647', '#E74739')) + xlab("Year")
+
+
+
+```
+
+## Make plot for lambda values during wet and dry years
+
+```{r}
+Lambda.wet <- Lambda_Arapahoe %>% filter(value %in% c("1991", "1992", "1993", "1995", "1997", "1998", "1999", "2004", "2005", "2006", "2008", "2009"))
+
+Lambda.dry <-Lambda_Arapahoe %>% filter(value %in% c("1994", "1996", "2000", "2001", "2002", "2003", "2007"))
+
+Lambda.wet$Condition <- "Wet"
+Lambda.dry$Condition <- "Dry"
+
+Lambda.A <- rbind(Lambda.wet, Lambda.dry)
+
+summary(lm(Lambda.A$Lambda_Arapahoe~Lambda.A$Condition))
+
+P2 <- ggplot(Lambda.A, aes(x=Condition, y=Lambda_Arapahoe)) + geom_violin(width=0.5, aes(fill= Condition), alpha=0.4, show.legend = FALSE) + geom_boxplot(width=0.1, aes(fill= Condition), alpha=0.4, show.legend = FALSE) + theme_bw() + geom_point(col = "black") + ylab(expression(paste("Asymptotic (", lambda[t],")"))) +
+  scale_fill_viridis_d() + xlab("Climate")  + annotate(geom="text", x=1.5, y=2.5, size=5, label="p=0.26") + ggtitle("Arapaho") +
+  theme(text = element_text(size = 15),
+        strip.text = element_text(size=15)) 
+
+#A.plot <- P1 + annotation_custom(ggplotGrob(P2), xmin = 0, xmax = 30, 
+#                      ymin = 2000, ymax = 8000) + ggtitle("(A) Arapaho") 
+
+```
+
+## You need to run VR_Niobrara.qmd before making this plot (Figure 8)
+
+```{r}
+#ggarrange(P.A, P2, SSD.A, P.N1, P3, SSD.N,
+#         ncol = 2, nrow = 3, align = "hv")
+
+library(cowplot)
+
+plot_grid(SSD.A, SSD.N, labels = "AUTO", ncol=2)
+
+plot_grid(P2, P3,  P.A, P.N1,  labels = "AUTO", ncol=2)
+```
+
+#### 
+
+## 100%/100%
+
+```{r}
+library(popbio)
+library(popdemo)
+
+#for loop from the first year to the last year to construct matrices
+
+tmax=dim(VR_Arapahoe)[1]    #estimates from 19 years
+elements=36   #No. matrix elements
+
+matrices.Arapahoe<-matrix(nrow=elements, ncol=tmax)  #A matrix to collect all matrices
+
+
+for (i in 1:tmax){
+
+ mat5 <- matrix(c(
+  ##To Seedling
+  0, 
+  0, 
+  VR_Arapahoe[i, "Seedling_rec"], # From flowering single rosette to Seedlings 
+  0, 
+  VR_Arapahoe[i, "Seedling_rec"], # From flowering multiple rosette to Seedlings 
+  0,
+  
+  ##To SR
+  VR_Arapahoe[i, "Seedlingsurv"]*VR_Arapahoe[i, "SeedlingtoSR"], # From Seedlings to SR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSR"]) + VR_Arapahoe[i, "SR_rec"], # From SR to SR
+  0, # From SF to SR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSR"]) + VR_Arapahoe[i, "SR_rec"], # From MR to SR
+  0, # From MF to SR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSR"], # From D to SR
+  
+  ## To SF
+  0, # From Seedling to SF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSF"]) + VR_Arapahoe[i, "SF_rec"], #From SR to SF
+  0, # From SF to SF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSF"]) + VR_Arapahoe[i, "SF_rec"], # From MR to SF
+  0, # From MF to SF
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSF"], # From D to SF
+  
+  ## To MR
+  0, # From Seedling to MR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMR"]) + VR_Arapahoe[i, "MR_rec"], # From SR to MR
+  0, # From SF to MR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMR"]) + VR_Arapahoe[i, "MR_rec"], # From MR to MR
+  0, # From MF to MR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoMR"], # From D to MR
+  
+  ## To MF
+  0, # From Seedling to MF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMF"]) + VR_Arapahoe[i, "MF_rec"], # From SR to MF
+  0, # From SF to MF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMF"]) + VR_Arapahoe[i, "MF_rec"], # From MR to MF
+  0, # From MF to MF
+  0, # From D to MF
+  
+  ## To inactive
+  0, # From Seedling to D
+  VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoIA"], # From SR to D
+  0, # From SF to D
+  VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoIA"], # From MR to D
+  0, # From MF to D
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoIA"] # From D to D
+),  nrow=6, byrow = F) 
+
+matrices.Arapahoe[,i]<-as.vector(mat5)
+
+colnames(matrices.Arapahoe) = c("1991","1992","1993","1994","1995","1996","1997","1998","1999","2000","2001", "2002", "2003", "2004", "2005", "2006", "2007", "2008", "2009")
+
+}
+
+
+###############################################################################
+
+column1<-matrices.Arapahoe[,1]  #extract a column
+lambda_1991<-matrix((column1), nrow=6) #reshape to a matrix
+lambda(lambda_1991)
+colSums(lambda_1991)
+eigs(lambda_1991)
+
+#####################
+column2<-matrices.Arapahoe[,2]  #extract a column
+lambda_1992<-matrix((column2), nrow=6) #reshape to a matrix
+lambda(lambda_1992)
+colSums(lambda_1992)
+eigs(lambda_1992)
+
+##################
+column3<-matrices.Arapahoe[,3]  #extract a column
+lambda_1993<-matrix((column3), nrow=6) #reshape to a matrix
+lambda(lambda_1993)
+colSums(lambda_1993)
+eigs(lambda_1993)
+
+##################
+column4<-matrices.Arapahoe[,4]  #extract a column
+lambda_1994<-matrix((column4), nrow=6) #reshape to a matrix
+lambda(lambda_1994)
+colSums(lambda_1994)
+eigs(lambda_1994)
+
+##################
+column5<-matrices.Arapahoe[,5]  #extract a column
+lambda_1995<-matrix((column5), nrow=6) #reshape to a matrix
+lambda(lambda_1995)
+colSums(lambda_1995)
+eigs(lambda_1995)
+
+##################
+column6<-matrices.Arapahoe[,6]  #extract a column
+lambda_1996<-matrix((column6), nrow=6) #reshape to a matrix
+lambda(lambda_1996)
+colSums(lambda_1996)
+eigs(lambda_1996)
+
+##################
+column7<-matrices.Arapahoe[,7]  #extract a column
+lambda_1997<-matrix((column7), nrow=6) #reshape to a matrix
+lambda(lambda_1997)
+colSums(lambda_1997)
+eigs(lambda_1997)
+
+##################
+column8<-matrices.Arapahoe[,8]  #extract a column
+lambda_1998<-matrix((column8), nrow=6) #reshape to a matrix
+lambda(lambda_1998)
+colSums(lambda_1998)
+eigs(lambda_1998)
+
+##################
+column9<-matrices.Arapahoe[,9]  #extract a column
+lambda_1999<-matrix((column9), nrow=6) #reshape to a matrix
+lambda(lambda_1999)
+colSums(lambda_1999)
+eigs(lambda_1999)
+
+##################
+column10<-matrices.Arapahoe[,10]  #extract a column
+lambda_2000<-matrix((column10), nrow=6) #reshape to a matrix
+lambda(lambda_2000)
+colSums(lambda_2000)
+eigs(lambda_2000)
+
+##################
+column11<-matrices.Arapahoe[,11]  #extract a column
+lambda_2001<-matrix((column11), nrow=6) #reshape to a matrix
+lambda(lambda_2001)
+colSums(lambda_2001)
+eigs(lambda_2001)
+
+##################
+column12<-matrices.Arapahoe[,12]  #extract a column
+lambda_2002<-matrix((column12), nrow=6) #reshape to a matrix
+lambda(lambda_2002)
+colSums(lambda_2002)
+eigs(lambda_2002)
+
+##################
+column13<-matrices.Arapahoe[,13]  #extract a column
+lambda_2003<-matrix((column13), nrow=6) #reshape to a matrix
+lambda(lambda_2003)
+colSums(lambda_2003)
+eigs(lambda_2003)
+
+##################
+column14<-matrices.Arapahoe[,14]  #extract a column
+lambda_2004<-matrix((column14), nrow=6) #reshape to a matrix
+lambda(lambda_2004)
+colSums(lambda_2004)
+eigs(lambda_2004)
+
+##################
+column15<-matrices.Arapahoe[,15]  #extract a column
+lambda_2005<-matrix((column15), nrow=6) #reshape to a matrix
+lambda(lambda_2005)
+colSums(lambda_2005)
+eigs(lambda_2005)
+
+##################
+column16<-matrices.Arapahoe[,16]  #extract a column
+lambda_2006<-matrix((column16), nrow=6) #reshape to a matrix
+lambda(lambda_2006)
+colSums(lambda_2006)
+eigs(lambda_2006)
+
+##################
+column17<-matrices.Arapahoe[,17]  #extract a column
+lambda_2007<-matrix((column17), nrow=6) #reshape to a matrix
+lambda(lambda_2007)
+colSums(lambda_2007)
+eigs(lambda_2007)
+
+##################
+column18<-matrices.Arapahoe[,18]  #extract a column
+lambda_2008<-matrix((column18), nrow=6) #reshape to a matrix
+lambda(lambda_2008)
+colSums(lambda_2008)
+eigs(lambda_2008)
+
+##################
+column19<-matrices.Arapahoe[,19]  #extract a column
+lambda_2009<-matrix((column19), nrow=6) #reshape to a matrix
+lambda(lambda_2009)
+colSums(lambda_2009)
+eigs(lambda_2009)
+
+
+Lambda_Arapaho1 <- c(lambda(lambda_1991), lambda(lambda_1992), lambda(lambda_1993), lambda(lambda_1994), lambda(lambda_1995), lambda(lambda_1996), lambda(lambda_1997), lambda(lambda_1998), lambda(lambda_1999), lambda(lambda_2000), lambda(lambda_2001), lambda(lambda_2002), lambda(lambda_2003), lambda(lambda_2004), lambda(lambda_2005), lambda(lambda_2006), lambda(lambda_2007), lambda(lambda_2008), lambda(lambda_2009))
+
+Year <- as_tibble(1991:2009)
+
+
+data.frame(Lambda_Arapaho1 <- cbind(Year, Lambda_Arapaho1))
+
+
+Stage.data <- read.csv("Stage.data.csv")
+
+Stage.data.Arapahoe <- Stage.data %>% filter(Site == "Arapaho")
+
+Stage.data.Arapahoe <- Stage.data.Arapahoe %>% group_by(Year) %>% summarise(Total = sum(Total))
+
+
+Stage.data.Arapahoe = Stage.data.Arapahoe %>%
+  # first sort by year
+  arrange(Year) %>%
+  mutate(Pop_Diff = Total - lag(Total), # Difference in Population between years
+         Growth.rate = Pop_Diff/lag(Total),
+         Relative.change = Total/lag(Total),
+         lamnda = exp(Growth.rate)) # growth rate 
+
+
+Stage.data.Arapahoe <- Stage.data.Arapahoe %>% filter(!Year == 1990)
+Lambda_Arapaho1$Site <- "Arapaho"
+
+
+P1 <- ggplot(Lambda_Arapaho1) + geom_point(aes(x=value, y=Lambda_Arapaho1, color = '#56B4E9')) + geom_line(aes(x=value, y=Lambda_Arapaho1, color = '#56B4E9')) + geom_hline(yintercept=1, linetype="dashed", color = "black") + geom_line(aes(x=Stage.data.Arapahoe$Year, y=Stage.data.Arapahoe$Relative.change, color = '#E69F00')) + geom_point(aes(x=Stage.data.Arapahoe$Year, y=Stage.data.Arapahoe$Relative.change, color = '#E69F00')) + theme_bw() + ylab("Population growth rate") + xlab("Year") + ggtitle("100:100") +
+  scale_color_identity(name='Population Growth Rate Model',
+                     breaks = c('#56B4E9', "#E69F00"),
+                     labels=c("Asymptotic Growth Rate", 'Transient Growth Rate'),
+                     guide = 'legend') + facet_wrap(~Site)
+```
+
+## 50%/50%
+
+```{r}
+#for loop from the first year to the last year to construct matrices
+
+tmax=dim(VR_Arapahoe)[1]    #estimates from 19 years
+elements=36   #No. matrix elements
+
+matrices.Arapaho.2<-matrix(nrow=elements, ncol=tmax);  #A matrix to collect all matrices
+
+
+for (i in 1:tmax){
+##############################
+ mat5 <- matrix(c(
+  ##To Seedling
+  0, 
+  0, 
+  (VR_Arapahoe[i, "Seedling_rec"])*0.5, # From flowering single rosette to Seedlings 
+  0, 
+  (VR_Arapahoe[i, "Seedling_rec"])*0.5, # From flowering multiple rosette to Seedlings 
+  0,
+  
+  ##To SR
+  VR_Arapahoe[i, "Seedlingsurv"]*VR_Arapahoe[i, "SeedlingtoSR"], # From Seedlings to SR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.5), # From SR to SR
+  0, # From SF to SR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.5), # From MR to SR
+  0, # From MF to SR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSR"], # From D to SR
+  
+  ## To SF
+  0, # From Seedling to SF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.5), #From SR to SF
+  0, # From SF to SF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.5), # From MR to SF
+  0, # From MF to SF
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSF"], # From D to SF
+  
+  ## To MR
+  0, # From Seedling to MR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.5, # From SR to MR
+  0, # From SF to MR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.5, # From MR to MR
+  0, # From MF to MR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoMR"], # From D to MR
+  
+  ## To MF
+  0, # From Seedling to MF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.5, # From SR to MF
+  0, # From SF to MF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.5, # From MR to MF
+  0, # From MF to MF
+  0, # From D to MF
+  
+  ## To inactive
+  0, # From Seedling to D
+  VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoIA"], # From SR to D
+  0, # From SF to D
+  VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoIA"], # From MR to D
+  0, # From MF to D
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoIA"] # From D to D
+),  nrow=6, byrow = F) 
+
+matrices.Arapaho.2[,i]<-as.vector(mat5)
+
+colnames(matrices.Arapaho.2) = c("1991","1992","1993","1994","1995","1996","1997","1998","1999","2000","2001", "2002", "2003", "2004", "2005", "2006", "2007", "2008", "2009")
+
+}
+
+
+###############################################################################
+
+column1<-matrices.Arapaho.2[,1]  #extract a column
+lambda_1991<-matrix((column1), nrow=6) #reshape to a matrix
+lambda(lambda_1991)
+colSums(lambda_1991)
+eigs(lambda_1991)
+
+#####################
+column2<-matrices.Arapaho.2[,2]  #extract a column
+lambda_1992<-matrix((column2), nrow=6) #reshape to a matrix
+lambda(lambda_1992)
+colSums(lambda_1992)
+eigs(lambda_1992)
+
+##################
+column3<-matrices.Arapaho.2[,3]  #extract a column
+lambda_1993<-matrix((column3), nrow=6) #reshape to a matrix
+lambda(lambda_1993)
+colSums(lambda_1993)
+eigs(lambda_1993)
+
+##################
+column4<-matrices.Arapaho.2[,4]  #extract a column
+lambda_1994<-matrix((column4), nrow=6) #reshape to a matrix
+lambda(lambda_1994)
+colSums(lambda_1994)
+eigs(lambda_1994)
+
+##################
+column5<-matrices.Arapaho.2[,5]  #extract a column
+lambda_1995<-matrix((column5), nrow=6) #reshape to a matrix
+lambda(lambda_1995)
+colSums(lambda_1995)
+eigs(lambda_1995)
+
+##################
+column6<-matrices.Arapaho.2[,6]  #extract a column
+lambda_1996<-matrix((column6), nrow=6) #reshape to a matrix
+lambda(lambda_1996)
+colSums(lambda_1996)
+eigs(lambda_1996)
+
+##################
+column7<-matrices.Arapaho.2[,7]  #extract a column
+lambda_1997<-matrix((column7), nrow=6) #reshape to a matrix
+lambda(lambda_1997)
+colSums(lambda_1997)
+eigs(lambda_1997)
+
+##################
+column8<-matrices.Arapaho.2[,8]  #extract a column
+lambda_1998<-matrix((column8), nrow=6) #reshape to a matrix
+lambda(lambda_1998)
+colSums(lambda_1998)
+eigs(lambda_1998)
+
+##################
+column9<-matrices.Arapaho.2[,9]  #extract a column
+lambda_1999<-matrix((column9), nrow=6) #reshape to a matrix
+lambda(lambda_1999)
+colSums(lambda_1999)
+eigs(lambda_1999)
+
+##################
+column10<-matrices.Arapaho.2[,10]  #extract a column
+lambda_2000<-matrix((column10), nrow=6) #reshape to a matrix
+lambda(lambda_2000)
+colSums(lambda_2000)
+eigs(lambda_2000)
+
+##################
+column11<-matrices.Arapaho.2[,11]  #extract a column
+lambda_2001<-matrix((column11), nrow=6) #reshape to a matrix
+lambda(lambda_2001)
+colSums(lambda_2001)
+eigs(lambda_2001)
+
+##################
+column12<-matrices.Arapaho.2[,12]  #extract a column
+lambda_2002<-matrix((column12), nrow=6) #reshape to a matrix
+lambda(lambda_2002)
+colSums(lambda_2002)
+eigs(lambda_2002)
+
+##################
+column13<-matrices.Arapaho.2[,13]  #extract a column
+lambda_2003<-matrix((column13), nrow=6) #reshape to a matrix
+lambda(lambda_2003)
+colSums(lambda_2003)
+eigs(lambda_2003)
+
+##################
+column14<-matrices.Arapaho.2[,14]  #extract a column
+lambda_2004<-matrix((column14), nrow=6) #reshape to a matrix
+lambda(lambda_2004)
+colSums(lambda_2004)
+eigs(lambda_2004)
+
+##################
+column15<-matrices.Arapaho.2[,15]  #extract a column
+lambda_2005<-matrix((column15), nrow=6) #reshape to a matrix
+lambda(lambda_2005)
+colSums(lambda_2005)
+eigs(lambda_2005)
+
+##################
+column16<-matrices.Arapaho.2[,16]  #extract a column
+lambda_2006<-matrix((column16), nrow=6) #reshape to a matrix
+lambda(lambda_2006)
+colSums(lambda_2006)
+eigs(lambda_2006)
+
+##################
+column17<-matrices.Arapaho.2[,17]  #extract a column
+lambda_2007<-matrix((column17), nrow=6) #reshape to a matrix
+lambda(lambda_2007)
+colSums(lambda_2007)
+eigs(lambda_2007)
+
+##################
+column18<-matrices.Arapaho.2[,18]  #extract a column
+lambda_2008<-matrix((column18), nrow=6) #reshape to a matrix
+lambda(lambda_2008)
+colSums(lambda_2008)
+eigs(lambda_2008)
+
+##################
+column19<-matrices.Arapaho.2[,19]  #extract a column
+lambda_2009<-matrix((column19), nrow=6) #reshape to a matrix
+lambda(lambda_2009)
+colSums(lambda_2009)
+eigs(lambda_2009)
+
+
+Lambda_Arapaho2 <- c(lambda(lambda_1991), lambda(lambda_1992), lambda(lambda_1993), lambda(lambda_1994), lambda(lambda_1995), lambda(lambda_1996), lambda(lambda_1997), lambda(lambda_1998), lambda(lambda_1999), lambda(lambda_2000), lambda(lambda_2001), lambda(lambda_2002), lambda(lambda_2003), lambda(lambda_2004), lambda(lambda_2005), lambda(lambda_2006), lambda(lambda_2007), lambda(lambda_2008), lambda(lambda_2009))
+
+Year <- as_tibble(1991:2009)
+
+
+data.frame(Lambda_Arapaho2 <- cbind(Year, Lambda_Arapaho2))
+
+Stage.data <- read.csv("Stage.data.csv")
+
+Stage.data.Arapahoe <- Stage.data %>% filter(Site == "Arapaho")
+
+Stage.data.Arapahoe <- Stage.data.Arapahoe %>% group_by(Year) %>% summarise(Total = sum(Total))
+
+
+Stage.data.Arapahoe = Stage.data.Arapahoe %>%
+  # first sort by year
+  arrange(Year) %>%
+  mutate(Pop_Diff = Total - lag(Total), # Difference in Population between years
+         Growth.rate = Pop_Diff/lag(Total),
+         Relative.change = Total/lag(Total),
+         lamnda = exp(Growth.rate)) # growth rate 
+
+
+Stage.data.Arapahoe <- Stage.data.Arapahoe %>% filter(!Year == 1990)
+Lambda_Arapaho2$Site <- "Arapaho"
+
+
+P2 <- ggplot(Lambda_Arapaho2) + geom_point(aes(x=value, y=Lambda_Arapaho2, color = '#56B4E9')) + geom_line(aes(x=value, y=Lambda_Arapaho2, color = '#56B4E9')) + geom_hline(yintercept=1, linetype="dashed", color = "black") + geom_line(aes(x=Stage.data.Arapahoe$Year, y=Stage.data.Arapahoe$Relative.change, color = '#E69F00')) + geom_point(aes(x=Stage.data.Arapahoe$Year, y=Stage.data.Arapahoe$Relative.change, color = '#E69F00')) + theme_bw() + ylab("Population growth rate") + xlab("Year") + ggtitle("50:50") +
+  scale_color_identity(name='Population Growth Rate Model',
+                     breaks = c('#56B4E9', "#E69F00"),
+                     labels=c("Asymptotic Growth Rate", 'Transient Growth Rate'),
+                     guide = 'legend') + facet_wrap(~Site)
+```
+
+### 90%(SR)/10%(MR)
+
+```{r}
+#for loop from the first year to the last year to construct matrices
+
+tmax=dim(VR_Arapahoe)[1]    #estimates from 19 years
+elements=36   #No. matrix elements
+
+matrices.Arapaho.3<-matrix(nrow=elements, ncol=tmax);  #A matrix to collect all matrices
+
+
+for (i in 1:tmax){
+##############################
+ mat5 <- matrix(c(
+  ##To Seedling
+  0, 
+  0, 
+ (VR_Arapahoe[i, "Seedling_rec"])*0.9, # From flowering single rosette to Seedlings 
+  0, 
+  (VR_Arapahoe[i, "Seedling_rec"])*0.1, # From flowering multiple rosette to Seedlings 
+  0,
+  
+  ##To SR
+  VR_Arapahoe[i, "Seedlingsurv"]*VR_Arapahoe[i, "SeedlingtoSR"], # From Seedlings to SR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.9), # From SR to SR
+  0, # From SF to SR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.1), # From MR to SR
+  0, # From MF to SR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSR"], # From D to SR
+  
+  ## To SF
+  0, # From Seedling to SF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.9), #From SR to SF
+  0, # From SF to SF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.1), # From MR to SF
+  0, # From MF to SF
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSF"], # From D to SF
+  
+  ## To MR
+  0, # From Seedling to MR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.9, # From SR to MR
+  0, # From SF to MR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.1, # From MR to MR
+  0, # From MF to MR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoMR"], # From D to MR
+  
+  ## To MF
+  0, # From Seedling to MF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.9, # From SR to MF
+  0, # From SF to MF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.1, # From MR to MF
+  0, # From MF to MF
+  0, # From D to MF
+  
+  ## To inactive
+  0, # From Seedling to D
+  VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoIA"], # From SR to D
+  0, # From SF to D
+  VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoIA"], # From MR to D
+  0, # From MF to D
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoIA"] # From D to D
+),  nrow=6, byrow = F) 
+
+matrices.Arapaho.3[,i]<-as.vector(mat5)
+
+colnames(matrices.Arapaho.3) = c("1991","1992","1993","1994","1995","1996","1997","1998","1999","2000","2001", "2002", "2003", "2004", "2005", "2006", "2007", "2008", "2009")
+
+}
+
+
+###############################################################################
+
+column1<-matrices.Arapaho.3[,1]  #extract a column
+lambda_1991<-matrix((column1), nrow=6) #reshape to a matrix
+lambda(lambda_1991)
+colSums(lambda_1991)
+eigs(lambda_1991)
+
+#####################
+column2<-matrices.Arapaho.3[,2]  #extract a column
+lambda_1992<-matrix((column2), nrow=6) #reshape to a matrix
+lambda(lambda_1992)
+colSums(lambda_1992)
+eigs(lambda_1992)
+
+##################
+column3<-matrices.Arapaho.3[,3]  #extract a column
+lambda_1993<-matrix((column3), nrow=6) #reshape to a matrix
+lambda(lambda_1993)
+colSums(lambda_1993)
+eigs(lambda_1993)
+
+##################
+column4<-matrices.Arapaho.3[,4]  #extract a column
+lambda_1994<-matrix((column4), nrow=6) #reshape to a matrix
+lambda(lambda_1994)
+colSums(lambda_1994)
+eigs(lambda_1994)
+
+##################
+column5<-matrices.Arapaho.3[,5]  #extract a column
+lambda_1995<-matrix((column5), nrow=6) #reshape to a matrix
+lambda(lambda_1995)
+colSums(lambda_1995)
+eigs(lambda_1995)
+
+##################
+column6<-matrices.Arapaho.3[,6]  #extract a column
+lambda_1996<-matrix((column6), nrow=6) #reshape to a matrix
+lambda(lambda_1996)
+colSums(lambda_1996)
+eigs(lambda_1996)
+
+##################
+column7<-matrices.Arapaho.3[,7]  #extract a column
+lambda_1997<-matrix((column7), nrow=6) #reshape to a matrix
+lambda(lambda_1997)
+colSums(lambda_1997)
+eigs(lambda_1997)
+
+##################
+column8<-matrices.Arapaho.3[,8]  #extract a column
+lambda_1998<-matrix((column8), nrow=6) #reshape to a matrix
+lambda(lambda_1998)
+colSums(lambda_1998)
+eigs(lambda_1998)
+
+##################
+column9<-matrices.Arapaho.3[,9]  #extract a column
+lambda_1999<-matrix((column9), nrow=6) #reshape to a matrix
+lambda(lambda_1999)
+colSums(lambda_1999)
+eigs(lambda_1999)
+
+##################
+column10<-matrices.Arapaho.3[,10]  #extract a column
+lambda_2000<-matrix((column10), nrow=6) #reshape to a matrix
+lambda(lambda_2000)
+colSums(lambda_2000)
+eigs(lambda_2000)
+
+##################
+column11<-matrices.Arapaho.3[,11]  #extract a column
+lambda_2001<-matrix((column11), nrow=6) #reshape to a matrix
+lambda(lambda_2001)
+colSums(lambda_2001)
+eigs(lambda_2001)
+
+##################
+column12<-matrices.Arapaho.3[,12]  #extract a column
+lambda_2002<-matrix((column12), nrow=6) #reshape to a matrix
+lambda(lambda_2002)
+colSums(lambda_2002)
+eigs(lambda_2002)
+
+##################
+column13<-matrices.Arapaho.3[,13]  #extract a column
+lambda_2003<-matrix((column13), nrow=6) #reshape to a matrix
+lambda(lambda_2003)
+colSums(lambda_2003)
+eigs(lambda_2003)
+
+##################
+column14<-matrices.Arapaho.3[,14]  #extract a column
+lambda_2004<-matrix((column14), nrow=6) #reshape to a matrix
+lambda(lambda_2004)
+colSums(lambda_2004)
+eigs(lambda_2004)
+
+##################
+column15<-matrices.Arapaho.3[,15]  #extract a column
+lambda_2005<-matrix((column15), nrow=6) #reshape to a matrix
+lambda(lambda_2005)
+colSums(lambda_2005)
+eigs(lambda_2005)
+
+##################
+column16<-matrices.Arapaho.3[,16]  #extract a column
+lambda_2006<-matrix((column16), nrow=6) #reshape to a matrix
+lambda(lambda_2006)
+colSums(lambda_2006)
+eigs(lambda_2006)
+
+##################
+column17<-matrices.Arapaho.3[,17]  #extract a column
+lambda_2007<-matrix((column17), nrow=6) #reshape to a matrix
+lambda(lambda_2007)
+colSums(lambda_2007)
+eigs(lambda_2007)
+
+##################
+column18<-matrices.Arapaho.3[,18]  #extract a column
+lambda_2008<-matrix((column18), nrow=6) #reshape to a matrix
+lambda(lambda_2008)
+colSums(lambda_2008)
+eigs(lambda_2008)
+
+##################
+column19<-matrices.Arapaho.3[,19]  #extract a column
+lambda_2009<-matrix((column19), nrow=6) #reshape to a matrix
+lambda(lambda_2009)
+colSums(lambda_2009)
+eigs(lambda_2009)
+
+
+Lambda_Arapaho3 <- c(lambda(lambda_1991), lambda(lambda_1992), lambda(lambda_1993), lambda(lambda_1994), lambda(lambda_1995), lambda(lambda_1996), lambda(lambda_1997), lambda(lambda_1998), lambda(lambda_1999), lambda(lambda_2000), lambda(lambda_2001), lambda(lambda_2002), lambda(lambda_2003), lambda(lambda_2004), lambda(lambda_2005), lambda(lambda_2006), lambda(lambda_2007), lambda(lambda_2008), lambda(lambda_2009))
+
+Year <- as_tibble(1991:2009)
+
+
+data.frame(Lambda_Arapaho3 <- cbind(Year, Lambda_Arapaho3))
+
+#######################################################################
+
+Stage.data <- read.csv("Stage.data.csv")
+
+Stage.data.Arapahoe <- Stage.data %>% filter(Site == "Arapaho")
+
+Stage.data.Arapahoe <- Stage.data.Arapahoe %>% group_by(Year) %>% summarise(Total = sum(Total))
+
+
+Stage.data.Arapahoe = Stage.data.Arapahoe %>%
+  # first sort by year
+  arrange(Year) %>%
+  mutate(Pop_Diff = Total - lag(Total), # Difference in Population between years
+         Growth.rate = Pop_Diff/lag(Total),
+         Relative.change = Total/lag(Total),
+         lamnda = exp(Growth.rate)) # growth rate 
+
+
+Stage.data.Arapahoe <- Stage.data.Arapahoe %>% filter(!Year == 1990)
+Lambda_Arapaho3$Site <- "Arapaho"
+
+
+P3 <- ggplot(Lambda_Arapaho3) + geom_point(aes(x=value, y=Lambda_Arapaho3, color = '#56B4E9')) + geom_line(aes(x=value, y=Lambda_Arapaho3, color = '#56B4E9')) + geom_hline(yintercept=1, linetype="dashed", color = "black") + geom_line(aes(x=Stage.data.Arapahoe$Year, y=Stage.data.Arapahoe$Relative.change, color = '#E69F00')) + geom_point(aes(x=Stage.data.Arapahoe$Year, y=Stage.data.Arapahoe$Relative.change, color = '#E69F00')) + theme_bw() + ylab("Population growth rate") + xlab("Year") + ggtitle("90:10") +
+  scale_color_identity(name='Population Growth Rate Model',
+                     breaks = c('#56B4E9', "#E69F00"),
+                     labels=c("Asymptotic Growth Rate", 'Transient Growth Rate'),
+                     guide = 'legend') + facet_wrap(~Site)
+```
+
+## 10/90
+
+```{r}
+#for loop from the first year to the last year to construct matrices
+
+tmax=dim(VR_Arapahoe)[1]    #estimates from 19 years
+elements=36   #No. matrix elements
+
+matrices.Arapaho.4<-matrix(nrow=elements, ncol=tmax);  #A matrix to collect all matrices
+
+
+for (i in 1:tmax){
+##############################
+ mat5 <- matrix(c(
+  ##To Seedling
+  0, 
+  0, 
+ (VR_Arapahoe[i, "Seedling_rec"])*0.1, # From flowering single rosette to Seedlings 
+  0, 
+  (VR_Arapahoe[i, "Seedling_rec"])*0.9, # From flowering multiple rosette to Seedlings 
+  0,
+  
+  ##To SR
+  VR_Arapahoe[i, "Seedlingsurv"]*VR_Arapahoe[i, "SeedlingtoSR"], # From Seedlings to SR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.1), # From SR to SR
+  0, # From SF to SR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.9), # From MR to SR
+  0, # From MF to SR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSR"], # From D to SR
+  
+  ## To SF
+  0, # From Seedling to SF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.1), #From SR to SF
+  0, # From SF to SF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.9), # From MR to SF
+  0, # From MF to SF
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSF"], # From D to SF
+  
+  ## To MR
+  0, # From Seedling to MR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.1, # From SR to MR
+  0, # From SF to MR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.9, # From MR to MR
+  0, # From MF to MR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoMR"], # From D to MR
+  
+  ## To MF
+  0, # From Seedling to MF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.1, # From SR to MF
+  0, # From SF to MF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.9, # From MR to MF
+  0, # From MF to MF
+  0, # From D to MF
+  
+  ## To inactive
+  0, # From Seedling to D
+  VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoIA"], # From SR to D
+  0, # From SF to D
+  VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoIA"], # From MR to D
+  0, # From MF to D
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoIA"] # From D to D
+),  nrow=6, byrow = F) 
+
+matrices.Arapaho.4[,i]<-as.vector(mat5)
+
+colnames(matrices.Arapaho.4) = c("1991","1992","1993","1994","1995","1996","1997","1998","1999","2000","2001", "2002", "2003", "2004", "2005", "2006", "2007", "2008", "2009")
+
+}
+
+
+###############################################################################
+
+column1<-matrices.Arapaho.4[,1]  #extract a column
+lambda_1991<-matrix((column1), nrow=6) #reshape to a matrix
+lambda(lambda_1991)
+colSums(lambda_1991)
+eigs(lambda_1991)
+
+#####################
+column2<-matrices.Arapaho.4[,2]  #extract a column
+lambda_1992<-matrix((column2), nrow=6) #reshape to a matrix
+lambda(lambda_1992)
+colSums(lambda_1992)
+eigs(lambda_1992)
+
+##################
+column3<-matrices.Arapaho.4[,3]  #extract a column
+lambda_1993<-matrix((column3), nrow=6) #reshape to a matrix
+lambda(lambda_1993)
+colSums(lambda_1993)
+eigs(lambda_1993)
+
+##################
+column4<-matrices.Arapaho.4[,4]  #extract a column
+lambda_1994<-matrix((column4), nrow=6) #reshape to a matrix
+lambda(lambda_1994)
+colSums(lambda_1994)
+eigs(lambda_1994)
+
+##################
+column5<-matrices.Arapaho.4[,5]  #extract a column
+lambda_1995<-matrix((column5), nrow=6) #reshape to a matrix
+lambda(lambda_1995)
+colSums(lambda_1995)
+eigs(lambda_1995)
+
+##################
+column6<-matrices.Arapaho.4[,6]  #extract a column
+lambda_1996<-matrix((column6), nrow=6) #reshape to a matrix
+lambda(lambda_1996)
+colSums(lambda_1996)
+eigs(lambda_1996)
+
+##################
+column7<-matrices.Arapaho.4[,7]  #extract a column
+lambda_1997<-matrix((column7), nrow=6) #reshape to a matrix
+lambda(lambda_1997)
+colSums(lambda_1997)
+eigs(lambda_1997)
+
+##################
+column8<-matrices.Arapaho.4[,8]  #extract a column
+lambda_1998<-matrix((column8), nrow=6) #reshape to a matrix
+lambda(lambda_1998)
+colSums(lambda_1998)
+eigs(lambda_1998)
+
+##################
+column9<-matrices.Arapaho.4[,9]  #extract a column
+lambda_1999<-matrix((column9), nrow=6) #reshape to a matrix
+lambda(lambda_1999)
+colSums(lambda_1999)
+eigs(lambda_1999)
+
+##################
+column10<-matrices.Arapaho.4[,10]  #extract a column
+lambda_2000<-matrix((column10), nrow=6) #reshape to a matrix
+lambda(lambda_2000)
+colSums(lambda_2000)
+eigs(lambda_2000)
+
+##################
+column11<-matrices.Arapaho.4[,11]  #extract a column
+lambda_2001<-matrix((column11), nrow=6) #reshape to a matrix
+lambda(lambda_2001)
+colSums(lambda_2001)
+eigs(lambda_2001)
+
+##################
+column12<-matrices.Arapaho.4[,12]  #extract a column
+lambda_2002<-matrix((column12), nrow=6) #reshape to a matrix
+lambda(lambda_2002)
+colSums(lambda_2002)
+eigs(lambda_2002)
+
+##################
+column13<-matrices.Arapaho.4[,13]  #extract a column
+lambda_2003<-matrix((column13), nrow=6) #reshape to a matrix
+lambda(lambda_2003)
+colSums(lambda_2003)
+eigs(lambda_2003)
+
+##################
+column14<-matrices.Arapaho.4[,14]  #extract a column
+lambda_2004<-matrix((column14), nrow=6) #reshape to a matrix
+lambda(lambda_2004)
+colSums(lambda_2004)
+eigs(lambda_2004)
+
+##################
+column15<-matrices.Arapaho.4[,15]  #extract a column
+lambda_2005<-matrix((column15), nrow=6) #reshape to a matrix
+lambda(lambda_2005)
+colSums(lambda_2005)
+eigs(lambda_2005)
+
+##################
+column16<-matrices.Arapaho.4[,16]  #extract a column
+lambda_2006<-matrix((column16), nrow=6) #reshape to a matrix
+lambda(lambda_2006)
+colSums(lambda_2006)
+eigs(lambda_2006)
+
+##################
+column17<-matrices.Arapaho.4[,17]  #extract a column
+lambda_2007<-matrix((column17), nrow=6) #reshape to a matrix
+lambda(lambda_2007)
+colSums(lambda_2007)
+eigs(lambda_2007)
+
+##################
+column18<-matrices.Arapaho.4[,18]  #extract a column
+lambda_2008<-matrix((column18), nrow=6) #reshape to a matrix
+lambda(lambda_2008)
+colSums(lambda_2008)
+eigs(lambda_2008)
+
+##################
+column19<-matrices.Arapaho.4[,19]  #extract a column
+lambda_2009<-matrix((column19), nrow=6) #reshape to a matrix
+lambda(lambda_2009)
+colSums(lambda_2009)
+eigs(lambda_2009)
+
+
+Lambda_Arapaho4 <- c(lambda(lambda_1991), lambda(lambda_1992), lambda(lambda_1993), lambda(lambda_1994), lambda(lambda_1995), lambda(lambda_1996), lambda(lambda_1997), lambda(lambda_1998), lambda(lambda_1999), lambda(lambda_2000), lambda(lambda_2001), lambda(lambda_2002), lambda(lambda_2003), lambda(lambda_2004), lambda(lambda_2005), lambda(lambda_2006), lambda(lambda_2007), lambda(lambda_2008), lambda(lambda_2009))
+
+Year <- as_tibble(1991:2009)
+
+
+data.frame(Lambda_Arapaho4 <- cbind(Year, Lambda_Arapaho4))
+
+#############################################################
+
+Stage.data <- read.csv("Stage.data.csv")
+
+Stage.data.Arapahoe <- Stage.data %>% filter(Site == "Arapaho")
+
+Stage.data.Arapahoe <- Stage.data.Arapahoe %>% group_by(Year) %>% summarise(Total = sum(Total))
+
+
+Stage.data.Arapahoe = Stage.data.Arapahoe %>%
+  # first sort by year
+  arrange(Year) %>%
+  mutate(Pop_Diff = Total - lag(Total), # Difference in Population between years
+         Growth.rate = Pop_Diff/lag(Total),
+         Relative.change = Total/lag(Total),
+         lamnda = exp(Growth.rate)) # growth rate 
+
+
+Stage.data.Arapahoe <- Stage.data.Arapahoe %>% filter(!Year == 1990)
+Lambda_Arapaho4$Site <- "Arapaho"
+
+
+P4 <- ggplot(Lambda_Arapaho4) + geom_point(aes(x=value, y=Lambda_Arapaho4, color = '#56B4E9')) + geom_line(aes(x=value, y=Lambda_Arapaho4, color = '#56B4E9')) + geom_hline(yintercept=1, linetype="dashed", color = "black") + geom_line(aes(x=Stage.data.Arapahoe$Year, y=Stage.data.Arapahoe$Relative.change, color = '#E69F00')) + geom_point(aes(x=Stage.data.Arapahoe$Year, y=Stage.data.Arapahoe$Relative.change, color = '#E69F00')) + theme_bw() + ylab("Population growth rate") + xlab("Year") + ggtitle("10:90") +
+  scale_color_identity(name='Population Growth Rate Model',
+                     breaks = c('#56B4E9', "#E69F00"),
+                     labels=c("Asymptotic Growth Rate", 'Transient Growth Rate'),
+                     guide = 'legend') + facet_wrap(~Site)
+```
+
+## 80/20
+
+```{r}
+#for loop from the first year to the last year to construct matrices
+
+tmax=dim(VR_Arapahoe)[1]    #estimates from 19 years
+elements=36   #No. matrix elements
+
+matrices.Arapaho.5<-matrix(nrow=elements, ncol=tmax);  #A matrix to collect all matrices
+
+
+for (i in 1:tmax){
+##############################
+ mat5 <- matrix(c(
+  ##To Seedling
+  0, 
+  0, 
+ (VR_Arapahoe[i, "Seedling_rec"])*0.8, # From flowering single rosette to Seedlings 
+  0, 
+  (VR_Arapahoe[i, "Seedling_rec"])*0.2, # From flowering multiple rosette to Seedlings 
+  0,
+  
+  ##To SR
+  VR_Arapahoe[i, "Seedlingsurv"]*VR_Arapahoe[i, "SeedlingtoSR"], # From Seedlings to SR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.8), # From SR to SR
+  0, # From SF to SR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSR"]) + (VR_Arapahoe[i, "SR_rec"]*0.2), # From MR to SR
+  0, # From MF to SR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSR"], # From D to SR
+  
+  ## To SF
+  0, # From Seedling to SF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.8), #From SR to SF
+  0, # From SF to SF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoSF"])+(VR_Arapahoe[i, "SF_rec"]*0.2), # From MR to SF
+  0, # From MF to SF
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoSF"], # From D to SF
+  
+  ## To MR
+  0, # From Seedling to MR
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.8, # From SR to MR
+  0, # From SF to MR
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMR"])+(VR_Arapahoe[i, "MR_rec"])*0.2, # From MR to MR
+  0, # From MF to MR
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoMR"], # From D to MR
+  
+  ## To MF
+  0, # From Seedling to MF
+  (VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.8, # From SR to MF
+  0, # From SF to MF
+  (VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoMF"])+(VR_Arapahoe[i, "MF_rec"])*0.2, # From MR to MF
+  0, # From MF to MF
+  0, # From D to MF
+  
+  ## To inactive
+  0, # From Seedling to D
+  VR_Arapahoe[i, "SRsurv"]*VR_Arapahoe[i, "SRtoIA"], # From SR to D
+  0, # From SF to D
+  VR_Arapahoe[i, "MRsurv"]*VR_Arapahoe[i, "MRtoIA"], # From MR to D
+  0, # From MF to D
+  VR_Arapahoe[i, "IAsurv"]*VR_Arapahoe[i, "IAtoIA"] # From D to D
+),  nrow=6, byrow = F) 
+
+matrices.Arapaho.5[,i]<-as.vector(mat5)
+
+colnames(matrices.Arapaho.5) = c("1991","1992","1993","1994","1995","1996","1997","1998","1999","2000","2001", "2002", "2003", "2004", "2005", "2006", "2007", "2008", "2009")
+
+}
+
+
+###############################################################################
+
+column1<-matrices.Arapaho.5[,1]  #extract a column
+lambda_1991<-matrix((column1), nrow=6) #reshape to a matrix
+lambda(lambda_1991)
+colSums(lambda_1991)
+eigs(lambda_1991)
+
+#####################
+column2<-matrices.Arapaho.5[,2]  #extract a column
+lambda_1992<-matrix((column2), nrow=6) #reshape to a matrix
+lambda(lambda_1992)
+colSums(lambda_1992)
+eigs(lambda_1992)
+
+##################
+column3<-matrices.Arapaho.5[,3]  #extract a column
+lambda_1993<-matrix((column3), nrow=6) #reshape to a matrix
+lambda(lambda_1993)
+colSums(lambda_1993)
+eigs(lambda_1993)
+
+##################
+column4<-matrices.Arapaho.5[,4]  #extract a column
+lambda_1994<-matrix((column4), nrow=6) #reshape to a matrix
+lambda(lambda_1994)
+colSums(lambda_1994)
+eigs(lambda_1994)
+
+##################
+column5<-matrices.Arapaho.5[,5]  #extract a column
+lambda_1995<-matrix((column5), nrow=6) #reshape to a matrix
+lambda(lambda_1995)
+colSums(lambda_1995)
+eigs(lambda_1995)
+
+##################
+column6<-matrices.Arapaho.5[,6]  #extract a column
+lambda_1996<-matrix((column6), nrow=6) #reshape to a matrix
+lambda(lambda_1996)
+colSums(lambda_1996)
+eigs(lambda_1996)
+
+##################
+column7<-matrices.Arapaho.5[,7]  #extract a column
+lambda_1997<-matrix((column7), nrow=6) #reshape to a matrix
+lambda(lambda_1997)
+colSums(lambda_1997)
+eigs(lambda_1997)
+
+##################
+column8<-matrices.Arapaho.5[,8]  #extract a column
+lambda_1998<-matrix((column8), nrow=6) #reshape to a matrix
+lambda(lambda_1998)
+colSums(lambda_1998)
+eigs(lambda_1998)
+
+##################
+column9<-matrices.Arapaho.5[,9]  #extract a column
+lambda_1999<-matrix((column9), nrow=6) #reshape to a matrix
+lambda(lambda_1999)
+colSums(lambda_1999)
+eigs(lambda_1999)
+
+##################
+column10<-matrices.Arapaho.5[,10]  #extract a column
+lambda_2000<-matrix((column10), nrow=6) #reshape to a matrix
+lambda(lambda_2000)
+colSums(lambda_2000)
+eigs(lambda_2000)
+
+##################
+column11<-matrices.Arapaho.5[,11]  #extract a column
+lambda_2001<-matrix((column11), nrow=6) #reshape to a matrix
+lambda(lambda_2001)
+colSums(lambda_2001)
+eigs(lambda_2001)
+
+##################
+column12<-matrices.Arapaho.5[,12]  #extract a column
+lambda_2002<-matrix((column12), nrow=6) #reshape to a matrix
+lambda(lambda_2002)
+colSums(lambda_2002)
+eigs(lambda_2002)
+
+##################
+column13<-matrices.Arapaho.5[,13]  #extract a column
+lambda_2003<-matrix((column13), nrow=6) #reshape to a matrix
+lambda(lambda_2003)
+colSums(lambda_2003)
+eigs(lambda_2003)
+
+##################
+column14<-matrices.Arapaho.5[,14]  #extract a column
+lambda_2004<-matrix((column14), nrow=6) #reshape to a matrix
+lambda(lambda_2004)
+colSums(lambda_2004)
+eigs(lambda_2004)
+
+##################
+column15<-matrices.Arapaho.5[,15]  #extract a column
+lambda_2005<-matrix((column15), nrow=6) #reshape to a matrix
+lambda(lambda_2005)
+colSums(lambda_2005)
+eigs(lambda_2005)
+
+##################
+column16<-matrices.Arapaho.5[,16]  #extract a column
+lambda_2006<-matrix((column16), nrow=6) #reshape to a matrix
+lambda(lambda_2006)
+colSums(lambda_2006)
+eigs(lambda_2006)
+
+##################
+column17<-matrices.Arapaho.5[,17]  #extract a column
+lambda_2007<-matrix((column17), nrow=6) #reshape to a matrix
+lambda(lambda_2007)
+colSums(lambda_2007)
+eigs(lambda_2007)
+
+##################
+column18<-matrices.Arapaho.5[,18]  #extract a column
+lambda_2008<-matrix((column18), nrow=6) #reshape to a matrix
+lambda(lambda_2008)
+colSums(lambda_2008)
+eigs(lambda_2008)
+
+##################
+column19<-matrices.Arapaho.5[,19]  #extract a column
+lambda_2009<-matrix((column19), nrow=6) #reshape to a matrix
+lambda(lambda_2009)
+colSums(lambda_2009)
+eigs(lambda_2009)
+
+
+Lambda_Arapaho5 <- c(lambda(lambda_1991), lambda(lambda_1992), lambda(lambda_1993), lambda(lambda_1994), lambda(lambda_1995), lambda(lambda_1996), lambda(lambda_1997), lambda(lambda_1998), lambda(lambda_1999), lambda(lambda_2000), lambda(lambda_2001), lambda(lambda_2002), lambda(lambda_2003), lambda(lambda_2004), lambda(lambda_2005), lambda(lambda_2006), lambda(lambda_2007), lambda(lambda_2008), lambda(lambda_2009))
+
+Year <- as_tibble(1991:2009)
+
+
+data.frame(Lambda_Arapaho5 <- cbind(Year, Lambda_Arapaho5))
+
+#######################################################################
+
+Stage.data <- read.csv("Stage.data.csv")
+
+Stage.data.Arapahoe <- Stage.data %>% filter(Site == "Arapaho")
+
+Stage.data.Arapahoe <- Stage.data.Arapahoe %>% group_by(Year) %>% summarise(Total = sum(Total))
+
+
+Stage.data.Arapahoe = Stage.data.Arapahoe %>%
+  # first sort by year
+  arrange(Year) %>%
+  mutate(Pop_Diff = Total - lag(Total), # Difference in Population between years
+         Growth.rate = Pop_Diff/lag(Total),
+         Relative.change = Total/lag(Total),
+         lamnda = exp(Growth.rate)) # growth rate 
+
+
+Stage.data.Arapahoe <- Stage.data.Arapahoe %>% filter(!Year == 1990)
+Lambda_Arapaho5$Site <- "Arapaho"
+
+
+P5 <- ggplot(Lambda_Arapaho5) + geom_point(aes(x=value, y=Lambda_Arapaho5, color = '#56B4E9')) + geom_line(aes(x=value, y=Lambda_Arapaho5, color = '#56B4E9')) + geom_hline(yintercept=1, linetype="dashed", color = "black") + geom_line(aes(x=Stage.data.Arapahoe$Year, y=Stage.data.Arapahoe$Relative.change, color = '#E69F00')) + geom_point(aes(x=Stage.data.Arapahoe$Year, y=Stage.data.Arapahoe$Relative.change, color = '#E69F00')) + theme_bw() + ylab("Population growth rate") + xlab("Year") + ggtitle("80/20") +
+  scale_color_identity(name='Population Growth Rate Model',
+                     breaks = c('#56B4E9', "#E69F00"),
+                     labels=c("Asymptotic Growth Rate", 'Transient Growth Rate'),
+                     guide = 'legend') + facet_wrap(~Site)
+```
